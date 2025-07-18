@@ -521,29 +521,30 @@ def show_sidebar():
                 # Show current counts before deletion
                 try:
                     counts = st.session_state.db.get_table_counts()
-                    st.info(f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries...")
+                    st.info(
+                        f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries..."
+                    )
                 except:
                     pass
-                
+
                 # Clear the database
-                if st.session_state.get('db_initialized'):
+                if st.session_state.get("db_initialized"):
                     success = st.session_state.db.clear_all_data()
-                    
+
                     if success:
                         # Try to optimize database
                         try:
                             st.session_state.db.vacuum_database()
                         except:
                             pass  # Vacuum is optional
-                        
+
                         st.success("🎉 All data has been permanently deleted!")
                         st.balloons()
-                        
+
                         # Reset confirmation
                         st.session_state.clear_db_confirm_step = 0
-                        
+
                         # Refresh after brief pause
-                        import time
                         time.sleep(2)
                         st.rerun()
                     else:
@@ -552,10 +553,11 @@ def show_sidebar():
                 else:
                     st.error("❌ Database not initialized")
                     st.session_state.clear_db_confirm_step = 0
-                        
+
         except Exception as e:
             st.error(f"❌ Unexpected error: {e}")
             st.session_state.clear_db_confirm_step = 0
+
 
 def clear_database():
     """Clear all data from the database"""
