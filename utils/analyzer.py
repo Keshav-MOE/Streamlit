@@ -6,6 +6,7 @@ import streamlit as st
 from typing import List, Dict
 import os
 import re
+from google.api_core import exceptions
 
 class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
@@ -147,16 +148,38 @@ class GeminiTicketAnalyzer:
             st.info(f"📊 Prompt length: {len(prompt)} characters")
             
             # Call Gemini API with updated configuration
-            st.info("🚀 Calling Gemini API...")
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    temperature=0.1,  # Lower temperature for more consistent analysis
-                    max_output_tokens=4096,
-                    top_p=0.8,
-                    top_k=40
-                )
-            )
+            st.info("🚀 Calling Gemini API (with retry logic)...")
+            response = None
+            max_retries = 3
+            initial_wait_time = 5  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.model.generate_content(
+                        prompt,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.1,  # Lower temperature for more consistent analysis
+                            max_output_tokens=4096,
+                            top_p=0.8,
+                            top_k=40
+                        )
+                    )
+                    # If successful, break the loop
+                    break
+                except exceptions.ResourceExhausted as e:
+                    wait_time = initial_wait_time * (2 ** attempt)
+                    st.warning(
+                        f"⚠️ Rate limit hit (Attempt {attempt + 1}/{max_retries}). "
+                        f"This usually means you've exceeded the free tier's requests per minute/day. "
+                        f"Waiting {wait_time}s to retry..."
+                    )
+                    time.sleep(wait_time)
+                    if attempt + 1 == max_retries:
+                        st.error("❌ Max retries reached. The API is still unavailable. Aborting this batch.")
+                        raise e  # Re-raise to be caught by the outer block
+                except Exception as e:
+                    st.error(f"❌ An unexpected API error occurred on attempt {attempt + 1}: {e}")
+                    raise e  # Re-raise to be caught by the outer block
             
             st.success("✅ Gemini API call completed")
             
