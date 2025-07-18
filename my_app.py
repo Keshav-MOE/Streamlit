@@ -515,37 +515,47 @@ def show_sidebar():
                         st.rerun()
                 
                 with col2:
-                    if st.button("💥 YES, DELETE ALL", type="primary", use_container_width=True):
-                        clear_database()
-        
-        st.divider()
-        
-        # Navigation Help
-        st.markdown("### 📖 Navigation Guide")
-        st.markdown("""
-        **📁 Upload Data**: Import monthly CSV files
-        
-        **📊 Dashboard**: View analytics & charts
-        
-        **🛠️ SDK Insights**: AI-powered improvement suggestions
-        
-        **📈 Trends**: Historical analysis & patterns
-        """)
-        
-        st.divider()
-        
-        # System Info
-        with st.expander("ℹ️ System Information"):
-            st.text(f"Streamlit: {st.__version__}")
-            st.text(f"Database: SQLite")
-            st.text(f"AI Model: Gemini 1.5 Flash")
-            
-            if st.session_state.get('db_initialized'):
+    if st.button("💥 YES, DELETE ALL", type="primary", use_container_width=True):
+        try:
+            with st.spinner("🗑️ Clearing database..."):
+                # Show current counts before deletion
                 try:
-                    db_size = st.session_state.db.get_database_size()
-                    st.text(f"DB Size: {db_size}")
+                    counts = st.session_state.db.get_table_counts()
+                    st.info(f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries...")
                 except:
-                    st.text("DB Size: Unknown")
+                    pass
+                
+                # Clear the database
+                if st.session_state.get('db_initialized'):
+                    success = st.session_state.db.clear_all_data()
+                    
+                    if success:
+                        # Try to optimize database
+                        try:
+                            st.session_state.db.vacuum_database()
+                        except:
+                            pass  # Vacuum is optional
+                        
+                        st.success("🎉 All data has been permanently deleted!")
+                        st.balloons()
+                        
+                        # Reset confirmation
+                        st.session_state.clear_db_confirm_step = 0
+                        
+                        # Refresh after brief pause
+                        import time
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to clear database")
+                        st.session_state.clear_db_confirm_step = 0
+                else:
+                    st.error("❌ Database not initialized")
+                    st.session_state.clear_db_confirm_step = 0
+                        
+        except Exception as e:
+            st.error(f"❌ Unexpected error: {e}")
+            st.session_state.clear_db_confirm_step = 0
 
 def clear_database():
     """Clear all data from the database"""
