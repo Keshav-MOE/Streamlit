@@ -275,17 +275,18 @@ def clear_database():
             # Show what will be deleted
             if st.session_state.get('db_initialized'):
                 try:
-                    with st.session_state.db.engine.connect() as conn:
-                        ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
-                        summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
-                        st.info(f"Deleting {ticket_count} tickets and {summary_count} summaries...")
+                    counts = st.session_state.db.get_table_counts()
+                    st.info(f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries...")
                 except:
                     st.info("Preparing to clear all database records...")
             
-            # Clear the database
-            success = clear_all_database_tables()
+            # Clear the database using the database class method
+            success = st.session_state.db.clear_all_data()
             
             if success:
+                # Try to optimize database
+                st.session_state.db.vacuum_database()
+                
                 st.success("✅ Database cleared successfully!")
                 st.info("🔄 All ticket analysis data has been permanently deleted.")
                 
@@ -330,7 +331,7 @@ def clear_all_database_tables():
             # Commit all changes
             conn.commit()
             
-            # Vacuum to reclaim space
+            # Vacuum to reclaim space - do this in a separate connection
             try:
                 conn.execute(text("VACUUM"))
             except:
