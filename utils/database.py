@@ -5,6 +5,30 @@ from datetime import datetime
 import json
 import streamlit as st
 import os
+import numpy as np
+
+class JSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle numpy/pandas types"""
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int64, pd.Int64Dtype)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, pd.Float64Dtype)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif pd.isna(obj):
+            return None
+        elif hasattr(obj, 'item'):  # numpy types
+            return obj.item()
+        return super().default(obj)
+
+def safe_json_dumps(obj):
+    """Safely serialize object to JSON string"""
+    try:
+        return json.dumps(obj, cls=JSONEncoder, ensure_ascii=False)
+    except Exception as e:
+        # Fallback: convert to string
+        return json.dumps(str(obj))
 
 class TicketDB:
     def __init__(self):
@@ -81,7 +105,13 @@ class TicketDB:
                 # Database file info
                 if os.path.exists('ticket_analysis.db'):
                     db_size = os.path.getsize('ticket_analysis.db')
-                    debug_info.append(f"💾 Database file size: {db_size} bytes")
+                    if db_size < 1024:
+                        size_str = f"{db_size} bytes"
+                    elif db_size < 1024*1024:
+                        size_str = f"{db_size/1024:.1f} KB"
+                    else:
+                        size_str = f"{db_size/(1024*1024):.1f} MB"
+                    debug_info.append(f"💾 Database file size: {size_str}")
                 else:
                     debug_info.append("❌ Database file not found")
                 
@@ -236,6 +266,27 @@ class TicketDB:
             st.error(f"Database query failed: {e}")
             return pd.DataFrame()
     
+    def convert_to_native_types(self, obj):
+        """Convert numpy/pandas types to native Python types recursively"""
+        if obj is None or pd.isna(obj):
+            return None
+        elif isinstance(obj, (np.integer, np.int64, pd.Int64Dtype)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float64, pd.Float64Dtype)):
+            return float(obj)
+        elif hasattr(obj, 'item'):  # numpy scalar types
+            return obj.item()
+        elif isinstance(obj, dict):
+            return {str(k): self.convert_to_native_types(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.convert_to_native_types(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self.convert_to_native_types(item) for item in obj)
+        elif isinstance(obj, (pd.Series, pd.DataFrame)):
+            return obj.to_dict()
+        else:
+            return obj
+    
     def save_batch_analysis(self, month, batch_num, analysis_results):
         """Save batch analysis results with verification"""
         try:
@@ -246,17 +297,20 @@ class TicketDB:
             records = []
             
             for result in analysis_results:
+                # Convert all values to native types
+                cleaned_result = self.convert_to_native_types(result)
+                
                 record = {
-                    'month': month,
-                    'batch_number': batch_num,
-                    'ticket_id': result.get('ticket_id', ''),
-                    'ticket_category': result.get('ticket_category', ''),
-                    'analysis_json': json.dumps(result),
-                    'sdk_issues': json.dumps(result.get('sdk_issues', [])),
-                    'improvement_suggestions': json.dumps(result.get('improvement_suggestions', [])),
-                    'priority_score': result.get('priority_score', 5),
-                    'resolution_time_hours': result.get('resolution_time_hours', 0),
-                    'customer_satisfaction': result.get('customer_satisfaction', 3),
+                    'month': str(month),
+                    'batch_number': int(batch_num),
+                    'ticket_id': str(cleaned_result.get('ticket_id', '')),
+                    'ticket_category': str(cleaned_result.get('ticket_category', '')),
+                    'analysis_json': safe_json_dumps(cleaned_result),
+                    'sdk_issues': safe_json_dumps(cleaned_result.get('sdk_issues', [])),
+                    'improvement_suggestions': safe_json_dumps(cleaned_result.get('improvement_suggestions', [])),
+                    'priority_score': int(cleaned_result.get('priority_score', 5)),
+                    'resolution_time_hours': float(cleaned_result.get('resolution_time_hours', 0)),
+                    'customer_satisfaction': int(cleaned_result.get('customer_satisfaction', 3)),
                     'created_at': datetime.now()
                 }
                 records.append(record)
@@ -279,6 +333,11 @@ class TicketDB:
             
         except Exception as e:
             st.error(f"Failed to save batch analysis: {e}")
+            # Debug: Show the problematic data
+            st.error("🔍 Debug - First result structure:")
+            if analysis_results:
+                for key, value in analysis_results[0].items():
+                    st.text(f"  {key}: {type(value)} = {value}")
             raise e
     
     def verify_batch_save(self, month, batch_num, expected_count):
@@ -313,7 +372,7 @@ class TicketDB:
             return pd.DataFrame()
     
     def generate_monthly_summary(self, month):
-        """Generate summary for a specific month"""
+        """Generate summary for a specific month with proper type handling"""
         try:
             df = self.get_analysis_data(month)
             
@@ -321,12 +380,12 @@ class TicketDB:
                 return {
                     'total_tickets': 0,
                     'processed_tickets': 0,
-                    'avg_priority': 0,
-                    'avg_resolution_time': 0,
-                    'avg_satisfaction': 0,
+                    'avg_priority': 0.0,
+                    'avg_resolution_time': 0.0,
+                    'avg_satisfaction': 0.0,
                     'top_sdk_issues': {},
                     'improvement_priorities': {},
-                    'overall_score': 0
+                    'overall_score': 0.0
                 }
             
             # Parse SDK issues safely
@@ -335,7 +394,7 @@ class TicketDB:
                 try:
                     issues = json.loads(issues_str) if isinstance(issues_str, str) else issues_str
                     if isinstance(issues, list):
-                        all_sdk_issues.extend(issues)
+                        all_sdk_issues.extend([str(issue) for issue in issues if issue])
                 except:
                     continue
             
@@ -345,53 +404,120 @@ class TicketDB:
                 try:
                     improvements = json.loads(imp_str) if isinstance(imp_str, str) else imp_str
                     if isinstance(improvements, list):
-                        all_improvements.extend(improvements)
+                        all_improvements.extend([str(imp) for imp in improvements if imp])
                 except:
                     continue
             
-            # Calculate summary metrics
+            # Calculate summary metrics with explicit type conversion
+            def safe_mean(series, default=0.0):
+                """Calculate mean with proper type conversion"""
+                if series.empty:
+                    return float(default)
+                result = series.mean()
+                return float(result) if pd.notna(result) else float(default)
+            
+            def safe_count_dict(items, top_n=10):
+                """Create count dictionary with native Python types"""
+                if not items:
+                    return {}
+                
+                try:
+                    counts = pd.Series(items).value_counts().head(top_n)
+                    # Convert to native Python types
+                    result = {}
+                    for k, v in counts.items():
+                        result[str(k)] = int(v)
+                    return result
+                except Exception as e:
+                    st.warning(f"Error creating count dict: {e}")
+                    return {}
+            
+            # Build summary with explicit type conversion
             summary = {
-                'total_tickets': len(df),
-                'processed_tickets': len(df),
-                'avg_priority': float(df['priority_score'].mean()) if not df['priority_score'].empty else 0,
-                'avg_resolution_time': float(df['resolution_time_hours'].mean()) if not df['resolution_time_hours'].empty else 0,
-                'avg_satisfaction': float(df['customer_satisfaction'].mean()) if not df['customer_satisfaction'].empty else 0,
-                'top_sdk_issues': dict(pd.Series(all_sdk_issues).value_counts().head(10)) if all_sdk_issues else {},
-                'improvement_priorities': dict(pd.Series(all_improvements).value_counts().head(10)) if all_improvements else {},
+                'total_tickets': int(len(df)),
+                'processed_tickets': int(len(df)),
+                'avg_priority': safe_mean(df['priority_score'], 0.0),
+                'avg_resolution_time': safe_mean(df['resolution_time_hours'], 0.0),
+                'avg_satisfaction': safe_mean(df['customer_satisfaction'], 0.0),
+                'top_sdk_issues': safe_count_dict(all_sdk_issues, 10),
+                'improvement_priorities': safe_count_dict(all_improvements, 10),
             }
             
-            # Calculate overall score
+            # Calculate overall score with safe conversion
             if summary['avg_satisfaction'] > 0 and summary['avg_priority'] > 0:
                 summary['overall_score'] = float(summary['avg_satisfaction'] * summary['avg_priority'] / 10)
             else:
                 summary['overall_score'] = 0.0
             
+            # Debug: Log summary info
+            st.info(f"📊 Generated summary for {month}: {summary['total_tickets']} tickets")
+            
+            # Convert entire summary to native types
+            summary = self.convert_to_native_types(summary)
+            
             return summary
             
         except Exception as e:
             st.error(f"Failed to generate monthly summary: {e}")
-            return {}
+            
+            # Return safe default
+            return {
+                'total_tickets': 0,
+                'processed_tickets': 0,
+                'avg_priority': 0.0,
+                'avg_resolution_time': 0.0,
+                'avg_satisfaction': 0.0,
+                'top_sdk_issues': {},
+                'improvement_priorities': {},
+                'overall_score': 0.0
+            }
     
     def save_monthly_summary(self, month, summary):
-        """Save monthly summary"""
+        """Save monthly summary with proper JSON serialization"""
         try:
+            # Convert all values to native Python types
+            cleaned_summary = self.convert_to_native_types(summary)
+            
+            # Prepare record with explicit type conversion and validation
             record = {
-                'month': month,
-                'total_tickets': summary.get('total_tickets', 0),
-                'processed_tickets': summary.get('processed_tickets', 0),
-                'top_sdk_issues': json.dumps(summary.get('top_sdk_issues', {})),
-                'improvement_priorities': json.dumps(summary.get('improvement_priorities', {})),
-                'overall_score': summary.get('overall_score', 0),
-                'avg_priority': summary.get('avg_priority', 0),
+                'month': str(month),
+                'total_tickets': int(cleaned_summary.get('total_tickets', 0)),
+                'processed_tickets': int(cleaned_summary.get('processed_tickets', 0)),
+                'top_sdk_issues': safe_json_dumps(cleaned_summary.get('top_sdk_issues', {})),
+                'improvement_priorities': safe_json_dumps(cleaned_summary.get('improvement_priorities', {})),
+                'overall_score': float(cleaned_summary.get('overall_score', 0.0)),
+                'avg_priority': float(cleaned_summary.get('avg_priority', 0.0)),
                 'created_at': datetime.now()
             }
+            
+            # Additional debug info
+            st.info(f"💾 Saving summary for {month}: {record['total_tickets']} tickets, {record['processed_tickets']} processed")
+            
+            # Validate JSON serialization before saving
+            try:
+                json.loads(record['top_sdk_issues'])
+                json.loads(record['improvement_priorities'])
+            except Exception as json_error:
+                st.error(f"JSON validation failed: {json_error}")
+                # Use safe fallbacks
+                record['top_sdk_issues'] = "{}"
+                record['improvement_priorities'] = "{}"
             
             df = pd.DataFrame([record])
             df.to_sql('monthly_summary', self.engine, if_exists='append', index=False)
             st.success(f"✅ Monthly summary saved for {month}")
             
+            return True
+            
         except Exception as e:
             st.error(f"Failed to save monthly summary: {e}")
+            
+            # Debug: Show the problematic data
+            st.error("🔍 Debug info - Summary data:")
+            for key, value in summary.items():
+                st.text(f"  {key}: {type(value)} = {value}")
+            
+            return False
     
     def get_recent_activity(self, limit=10):
         """Get recent activity for home page"""
@@ -452,10 +578,10 @@ class TicketDB:
                 top_category = top_category_row[0] if top_category_row else 'N/A'
                 
                 return {
-                    'total_months': total_months,
-                    'current_month_tickets': current_month_tickets,
-                    'avg_priority': round(avg_priority, 1),
-                    'top_category': top_category
+                    'total_months': int(total_months),
+                    'current_month_tickets': int(current_month_tickets),
+                    'avg_priority': round(float(avg_priority), 1),
+                    'top_category': str(top_category)
                 }
                 
         except Exception as e:
@@ -463,7 +589,7 @@ class TicketDB:
             return {
                 'total_months': 0,
                 'current_month_tickets': 0,
-                'avg_priority': 0,
+                'avg_priority': 0.0,
                 'top_category': 'N/A'
             }
     
@@ -503,4 +629,18 @@ class TicketDB:
                 count = result.fetchone()[0]
                 return count > 0
         except Exception:
+            return False
+    
+    def verify_empty_database(self):
+        """Verify database is empty - for debugging"""
+        try:
+            with self.engine.connect() as conn:
+                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
+                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
+                
+                st.info(f"🔍 Verification: {ticket_count} tickets, {summary_count} summaries in database")
+                return ticket_count == 0 and summary_count == 0
+                
+        except Exception as e:
+            st.error(f"Verification failed: {e}")
             return False
