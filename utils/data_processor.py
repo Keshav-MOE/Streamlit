@@ -7,7 +7,7 @@ class DataProcessor:
         pass
     
     def merge_ticket_data(self, details_df: pd.DataFrame, comments_df: pd.DataFrame) -> pd.DataFrame:
-    """Merge ticket details with comments/conversations"""
+    # """Merge ticket details with comments/conversations"""
     
     # Try different common column names for joining (updated for your data)
     possible_join_keys = [
