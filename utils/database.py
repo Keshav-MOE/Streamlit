@@ -50,18 +50,36 @@ class TicketDB:
             conn.commit()
     
     def clear_all_data(self):
-        """Clear all data from the database"""
+    """Clear all data from the database"""
+    try:
+        # Use raw connection
+        import sqlite3
+        
+        # Connect directly to SQLite database
+        conn = sqlite3.connect('ticket_analysis.db')
+        cursor = conn.cursor()
+        
+        # Clear both tables
+        cursor.execute("DELETE FROM ticket_analysis")
+        cursor.execute("DELETE FROM monthly_summary")
+        
+        # Reset sequences
         try:
-            with self.engine.connect() as conn:
-                # Clear ticket analysis data
-                conn.execute(text("DELETE FROM ticket_analysis"))
-                # Clear monthly summaries
-                conn.execute(text("DELETE FROM monthly_summary"))
-                conn.commit()
-            return True
-        except Exception as e:
-            st.error(f"Failed to clear database: {e}")
-            return False
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='ticket_analysis'")
+            cursor.execute("DELETE FROM sqlite_sequence WHERE name='monthly_summary'")
+        except:
+            pass
+        
+        # Commit and close
+        conn.commit()
+        conn.close()
+        
+        st.success("✅ Database cleared successfully")
+        return True
+        
+    except Exception as e:
+        st.error(f"Failed to clear database: {e}")
+        return False
     
     def get_table_counts(self):
         """Get count of records in each table"""
