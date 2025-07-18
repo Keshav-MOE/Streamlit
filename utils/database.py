@@ -150,3 +150,74 @@ class TicketDB:
         
         df = pd.DataFrame([record])
         df.to_sql('monthly_summary', self.engine, if_exists='append', index=False)
+        # Add these methods to the TicketDB class
+
+def get_recent_activity(self, limit=10):
+    """Get recent activity for home page"""
+    query = """
+    SELECT month, ticket_category, COUNT(*) as count, 
+           AVG(priority_score) as avg_priority,
+           MAX(created_at) as last_updated
+    FROM ticket_analysis 
+    GROUP BY month, ticket_category 
+    ORDER BY last_updated DESC 
+    LIMIT :limit
+    """
+    return pd.read_sql(query, self.engine, params={'limit': limit})
+
+def get_quick_stats(self):
+    """Get quick statistics for sidebar"""
+    with self.engine.connect() as conn:
+        # Total months
+        total_months = conn.execute(text(
+            "SELECT COUNT(DISTINCT month) as count FROM ticket_analysis"
+        )).fetchone()[0]
+        
+        # Current month tickets (latest month)
+        latest_month = conn.execute(text(
+            "SELECT month FROM ticket_analysis ORDER BY created_at DESC LIMIT 1"
+        )).fetchone()
+        
+        if latest_month:
+            current_month_tickets = conn.execute(text(
+                "SELECT COUNT(*) as count FROM ticket_analysis WHERE month = :month"
+            ), {'month': latest_month[0]}).fetchone()[0]
+        else:
+            current_month_tickets = 0
+        
+        # Average priority
+        avg_priority = conn.execute(text(
+            "SELECT AVG(priority_score) as avg FROM ticket_analysis"
+        )).fetchone()[0] or 0
+        
+        # Top category
+        top_category = conn.execute(text(
+            """SELECT ticket_category, COUNT(*) as count 
+               FROM ticket_analysis 
+               GROUP BY ticket_category 
+               ORDER BY count DESC 
+               LIMIT 1"""
+        )).fetchone()
+        
+        return {
+            'total_months': total_months,
+            'current_month_tickets': current_month_tickets,
+            'avg_priority': round(avg_priority, 1),
+            'top_category': top_category[0] if top_category else 'N/A'
+        }
+
+def get_database_size(self):
+    """Get database size info"""
+    try:
+        import os
+        if os.path.exists('ticket_analysis.db'):
+            size = os.path.getsize('ticket_analysis.db')
+            if size < 1024:
+                return f"{size} bytes"
+            elif size < 1024*1024:
+                return f"{size/1024:.1f} KB"
+            else:
+                return f"{size/(1024*1024):.1f} MB"
+        return "Unknown"
+    except:
+        return "Unknown"
