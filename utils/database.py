@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 import json
 import streamlit as st
+import os
 
 class TicketDB:
     def __init__(self):
@@ -49,14 +50,82 @@ class TicketDB:
             conn.execute(text(create_summary_table))
             conn.commit()
     
+    def debug_database_contents(self):
+        """Debug function to show what's actually in the database"""
+        try:
+            debug_info = []
+            
+            with self.engine.connect() as conn:
+                # Check ticket_analysis table
+                ticket_result = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis"))
+                ticket_count = ticket_result.fetchone()[0]
+                debug_info.append(f"✅ ticket_analysis: {ticket_count} records")
+                
+                # Check monthly_summary table
+                summary_result = conn.execute(text("SELECT COUNT(*) FROM monthly_summary"))
+                summary_count = summary_result.fetchone()[0]
+                debug_info.append(f"✅ monthly_summary: {summary_count} records")
+                
+                # Get recent records by month
+                if ticket_count > 0:
+                    recent_result = conn.execute(text(
+                        "SELECT month, COUNT(*) as count FROM ticket_analysis GROUP BY month ORDER BY month DESC LIMIT 5"
+                    ))
+                    recent_records = recent_result.fetchall()
+                    debug_info.append("📅 Recent months:")
+                    for record in recent_records:
+                        debug_info.append(f"   - {record[0]}: {record[1]} tickets")
+                else:
+                    debug_info.append("📭 No tickets found in database")
+                
+                # Database file info
+                if os.path.exists('ticket_analysis.db'):
+                    db_size = os.path.getsize('ticket_analysis.db')
+                    debug_info.append(f"💾 Database file size: {db_size} bytes")
+                else:
+                    debug_info.append("❌ Database file not found")
+                
+                # Last update timestamp
+                if ticket_count > 0:
+                    latest_result = conn.execute(text(
+                        "SELECT MAX(created_at) FROM ticket_analysis"
+                    ))
+                    latest_update = latest_result.fetchone()[0]
+                    debug_info.append(f"🕒 Last update: {latest_update}")
+                
+            return debug_info
+            
+        except Exception as e:
+            return [f"❌ Error checking database: {e}"]
+    
+    def force_verify_data(self):
+        """Force verification of data without caching"""
+        try:
+            with self.engine.connect() as conn:
+                # Get fresh counts
+                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
+                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
+                
+                # Get distinct months
+                months_result = conn.execute(text("SELECT DISTINCT month FROM ticket_analysis ORDER BY month DESC"))
+                months = [row[0] for row in months_result.fetchall()]
+                
+                return {
+                    'ticket_count': ticket_count,
+                    'summary_count': summary_count,
+                    'months': months,
+                    'verified_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+        except Exception as e:
+            return {'error': str(e)}
+    
     def clear_all_data(self):
         """Clear all data from the database"""
         try:
-            # Method 1: Use direct SQLite connection (most reliable)
+            # Use direct SQLite connection for reliability
             import sqlite3
-            import os
             
-            # Close any existing SQLAlchemy connections
+            # Close SQLAlchemy connections
             self.engine.dispose()
             
             # Connect directly to SQLite
@@ -66,21 +135,24 @@ class TicketDB:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 
-                # Get counts before deletion (for logging)
+                # Get counts before deletion
                 cursor.execute("SELECT COUNT(*) FROM ticket_analysis")
                 ticket_count = cursor.fetchone()[0]
                 
                 cursor.execute("SELECT COUNT(*) FROM monthly_summary") 
                 summary_count = cursor.fetchone()[0]
                 
-                st.info(f"Deleting {ticket_count} tickets and {summary_count} summaries...")
+                st.info(f"🗑️ Deleting {ticket_count} tickets and {summary_count} summaries...")
                 
                 # Clear both tables
                 cursor.execute("DELETE FROM ticket_analysis")
                 cursor.execute("DELETE FROM monthly_summary")
                 
                 # Reset auto-increment counters
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('ticket_analysis', 'monthly_summary')")
+                try:
+                    cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('ticket_analysis', 'monthly_summary')")
+                except:
+                    pass  # sqlite_sequence might not exist
                 
                 # Commit changes
                 conn.commit()
@@ -111,7 +183,6 @@ class TicketDB:
                 
         except Exception as e:
             st.error(f"Failed to clear database: {e}")
-            # Try to recreate the engine in case it was corrupted
             try:
                 self.engine = create_engine('sqlite:///ticket_analysis.db')
             except:
@@ -138,12 +209,10 @@ class TicketDB:
         try:
             import sqlite3
             
-            # Use direct connection for VACUUM
             conn = sqlite3.connect('ticket_analysis.db')
             conn.execute("VACUUM")
             conn.close()
             
-            st.success("🔧 Database optimized")
             return True
             
         except Exception as e:
@@ -151,7 +220,7 @@ class TicketDB:
             return False
     
     def get_analysis_data(self, month=None):
-        """Get analysis data with optional month filter - NO CACHING"""
+        """Get analysis data with optional month filter"""
         query = "SELECT * FROM ticket_analysis"
         params = {}
         
@@ -168,8 +237,12 @@ class TicketDB:
             return pd.DataFrame()
     
     def save_batch_analysis(self, month, batch_num, analysis_results):
-        """Save batch analysis results"""
+        """Save batch analysis results with verification"""
         try:
+            if not analysis_results:
+                st.warning("No analysis results to save")
+                return False
+            
             records = []
             
             for result in analysis_results:
@@ -191,18 +264,42 @@ class TicketDB:
             if records:
                 df = pd.DataFrame(records)
                 df.to_sql('ticket_analysis', self.engine, if_exists='append', index=False)
-                st.success(f"✅ Saved batch {batch_num} with {len(records)} tickets for {month}")
+                
+                # Verify the save
+                verification = self.verify_batch_save(month, batch_num, len(records))
+                if verification:
+                    st.success(f"✅ Saved batch {batch_num} with {len(records)} tickets for {month}")
+                    return True
+                else:
+                    st.error(f"❌ Batch save verification failed for batch {batch_num}")
+                    return False
+            else:
+                st.warning("No valid records to save")
+                return False
             
         except Exception as e:
             st.error(f"Failed to save batch analysis: {e}")
             raise e
     
+    def verify_batch_save(self, month, batch_num, expected_count):
+        """Verify that batch was saved correctly"""
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text(
+                    "SELECT COUNT(*) FROM ticket_analysis WHERE month = :month AND batch_number = :batch_num"
+                ), {'month': month, 'batch_num': batch_num})
+                actual_count = result.fetchone()[0]
+                return actual_count == expected_count
+        except:
+            return False
+    
     def get_total_tickets(self):
-        """Get total number of analyzed tickets"""
+        """Get total number of analyzed tickets - always fresh"""
         try:
             with self.engine.connect() as conn:
                 result = conn.execute(text("SELECT COUNT(*) as count FROM ticket_analysis"))
-                return result.fetchone()[0]
+                count = result.fetchone()[0]
+                return count
         except Exception as e:
             st.error(f"Failed to get total tickets: {e}")
             return 0
@@ -239,9 +336,7 @@ class TicketDB:
                     issues = json.loads(issues_str) if isinstance(issues_str, str) else issues_str
                     if isinstance(issues, list):
                         all_sdk_issues.extend(issues)
-                except json.JSONDecodeError:
-                    continue
-                except Exception:
+                except:
                     continue
             
             # Parse improvement suggestions safely
@@ -251,9 +346,7 @@ class TicketDB:
                     improvements = json.loads(imp_str) if isinstance(imp_str, str) else imp_str
                     if isinstance(improvements, list):
                         all_improvements.extend(improvements)
-                except json.JSONDecodeError:
-                    continue
-                except Exception:
+                except:
                     continue
             
             # Calculate summary metrics
@@ -318,7 +411,7 @@ class TicketDB:
             return pd.DataFrame()
     
     def get_quick_stats(self):
-        """Get quick statistics for sidebar"""
+        """Get quick statistics for sidebar - always fresh"""
         try:
             with self.engine.connect() as conn:
                 # Total months
@@ -377,7 +470,6 @@ class TicketDB:
     def get_database_size(self):
         """Get database size info"""
         try:
-            import os
             if os.path.exists('ticket_analysis.db'):
                 size = os.path.getsize('ticket_analysis.db')
                 if size < 1024:
@@ -391,12 +483,10 @@ class TicketDB:
             return "Unknown"
     
     def clear_month_data(self, month):
-        """Clear data for a specific month (useful for re-processing)"""
+        """Clear data for a specific month"""
         try:
             with self.engine.connect() as conn:
-                # Delete analysis data
                 conn.execute(text("DELETE FROM ticket_analysis WHERE month = :month"), {'month': month})
-                # Delete summary data
                 conn.execute(text("DELETE FROM monthly_summary WHERE month = :month"), {'month': month})
                 conn.commit()
                 st.success(f"✅ Cleared data for {month}")
@@ -413,18 +503,4 @@ class TicketDB:
                 count = result.fetchone()[0]
                 return count > 0
         except Exception:
-            return False
-    
-    def verify_empty_database(self):
-        """Verify database is empty - for debugging"""
-        try:
-            with self.engine.connect() as conn:
-                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
-                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
-                
-                st.info(f"🔍 Verification: {ticket_count} tickets, {summary_count} summaries in database")
-                return ticket_count == 0 and summary_count == 0
-                
-        except Exception as e:
-            st.error(f"Verification failed: {e}")
             return False
