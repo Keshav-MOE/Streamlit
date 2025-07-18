@@ -19,7 +19,7 @@ class GeminiTicketAnalyzer:
         # Initialize model
         try:
             # Try different model names in order of preference
-            model_names = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash']
+            model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
             
             for model_name in model_names:
                 try:
@@ -176,4 +176,203 @@ For each ticket, return a JSON object with this EXACT structure:
     "ticket_id": "string",
     "ticket_category": "string",
     "sdk_issues": ["issue1", "issue2"],
-    "
+    "improvement_suggestions": ["suggestion1", "suggestion2"],
+    "priority_score": 5,
+    "resolution_time_hours": 0.0,
+    "customer_satisfaction": 3,
+    "sdk_impact": "Medium"
+}}
+
+Focus on identifying:
+- SDK integration problems
+- Documentation gaps
+- API/SDK bugs
+- Performance issues
+- Developer experience problems
+
+Tickets to analyze:
+"""
+        
+        for i, ticket in enumerate(ticket_summaries):
+            prompt += f"""
+Ticket {i+1}:
+ID: {ticket['id']}
+Subject: {ticket['subject']}
+Organization: {ticket['organization']}
+Customer Tier: {ticket['customer_tier']}
+SDK: {ticket['sdk']}
+Issue Type: {ticket['sdk_issue_type']}
+Resolution Time: {ticket['resolution_time']}
+Call Made: {ticket['call_happened']}
+Description: {ticket['conversation']}
+---
+"""
+        
+        prompt += f"""
+Return a JSON array with exactly {len(ticket_summaries)} objects. Only return valid JSON, no other text or markdown.
+"""
+        
+        return prompt
+    
+    def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
+        """Parse and validate Gemini's JSON response"""
+        
+        try:
+            # Clean the response text
+            response_text = response_text.strip()
+            
+            # Remove markdown formatting if present
+            if '```json' in response_text:
+                start = response_text.find('```json') + 7
+                end = response_text.find('```', start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+            elif '```' in response_text:
+                start = response_text.find('```') + 3
+                end = response_text.find('```', start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+            
+            # Find JSON array bounds
+            start_idx = response_text.find('[')
+            end_idx = response_text.rfind(']') + 1
+            
+            if start_idx != -1 and end_idx > start_idx:
+                json_content = response_text[start_idx:end_idx]
+                results = json.loads(json_content)
+                
+                # Validate results
+                if isinstance(results, list):
+                    validated_results = []
+                    for i, result in enumerate(results):
+                        # Ensure we have a ticket_id from the original data
+                        if i < len(df):
+                            original_row = df.iloc[i]
+                            result['ticket_id'] = str(original_row.get('ticket_id', 
+                                                                     original_row.get('Ticket_ID', f'ticket_{i}')))
+                        
+                        validated_result = self._validate_analysis_result(result)
+                        validated_results.append(validated_result)
+                    
+                    return validated_results
+            
+            # If parsing fails, create fallback
+            raise ValueError("Could not parse JSON response")
+                
+        except Exception as e:
+            st.warning(f"⚠️ Response parsing failed: {e}. Using fallback analysis.")
+            return self._create_fallback_analysis(df)
+    
+    def _validate_analysis_result(self, result: Dict) -> Dict:
+        """Validate and clean a single analysis result"""
+        
+        def safe_convert_float(value, default=0.0):
+            try:
+                if pd.isna(value) or value == '' or value is None:
+                    return default
+                # Handle string formats like "2.5 hours", "3h", etc.
+                if isinstance(value, str):
+                    # Extract numbers from string
+                    numbers = re.findall(r'[\d.]+', value)
+                    if numbers:
+                        return float(numbers[0])
+                return float(value)
+            except:
+                return default
+        
+        def safe_convert_int(value, default, min_val, max_val):
+            try:
+                if pd.isna(value) or value == '' or value is None:
+                    return default
+                return max(min_val, min(max_val, int(float(value))))
+            except:
+                return default
+        
+        def ensure_list(value, default_list):
+            if isinstance(value, list):
+                return [str(item) for item in value if item]  # Convert to strings and remove empty
+            elif isinstance(value, str) and value.strip():
+                return [value.strip()]
+            else:
+                return default_list
+        
+        cleaned_result = {
+            'ticket_id': str(result.get('ticket_id', 'unknown')),
+            'ticket_category': str(result.get('ticket_category', 'General')),
+            'sdk_issues': ensure_list(result.get('sdk_issues'), ['General SDK Issue']),
+            'improvement_suggestions': ensure_list(result.get('improvement_suggestions'), ['Improve documentation']),
+            'priority_score': safe_convert_int(result.get('priority_score'), 5, 1, 10),
+            'resolution_time_hours': safe_convert_float(result.get('resolution_time_hours'), 0.0),
+            'customer_satisfaction': safe_convert_int(result.get('customer_satisfaction'), 3, 1, 5),
+            'sdk_impact': str(result.get('sdk_impact', 'Medium'))
+        }
+        
+        return cleaned_result
+    
+    def _create_fallback_analysis(self, df: pd.DataFrame) -> List[Dict]:
+        """Create basic analysis when Gemini fails"""
+        
+        results = []
+        for idx, row in df.iterrows():
+            
+            # Get ticket ID from either column name format
+            ticket_id = str(row.get('ticket_id', row.get('Ticket_ID', f'fallback_{idx}')))
+            
+            # Basic categorization based on available data
+            subject = str(row.get('ticket_sub_name', row.get('Ticket subject', ''))).lower()
+            sdk_name = str(row.get('sdk_name', row.get('SDK', 'Unknown')))
+            sdk_issue_type = str(row.get('sdk_issue_category', row.get('SDK Issue Types', '')))
+            
+            # Determine category and issues based on available information
+            if any(word in subject for word in ['api', 'integration', 'connect']):
+                category = 'API Integration'
+                sdk_issues = ['API Integration Issues']
+                priority = 7
+            elif any(word in subject for word in ['doc', 'guide', 'help', 'how']):
+                category = 'Documentation'
+                sdk_issues = ['Documentation Problems']
+                priority = 5
+            elif any(word in subject for word in ['error', 'bug', 'crash', 'fail']):
+                category = 'Bug Report'
+                sdk_issues = ['SDK Bug Reports']
+                priority = 8
+            elif any(word in subject for word in ['slow', 'performance', 'timeout']):
+                category = 'Performance'
+                sdk_issues = ['Performance Problems']
+                priority = 7
+            elif 'auth' in subject or 'login' in subject:
+                category = 'Authentication'
+                sdk_issues = ['Authentication Issues']
+                priority = 8
+            else:
+                category = sdk_issue_type if sdk_issue_type and sdk_issue_type != 'nan' else 'General Support'
+                sdk_issues = ['General SDK Questions']
+                priority = 5
+            
+            # Extract resolution time
+            resolution_time = 0.0
+            resolution_field = row.get('resolution_time_hours', row.get('Full Resolution Time', 0))
+            try:
+                if pd.notna(resolution_field):
+                    resolution_time = float(str(resolution_field).replace('h', '').replace('hours', '').strip())
+            except:
+                resolution_time = 0.0
+            
+            result = {
+                'ticket_id': ticket_id,
+                'ticket_category': category,
+                'sdk_issues': sdk_issues,
+                'improvement_suggestions': [
+                    'Improve documentation',
+                    'Add more code examples',
+                    'Enhance error messages'
+                ],
+                'priority_score': priority,
+                'resolution_time_hours': resolution_time,
+                'customer_satisfaction': 3,  # Default neutral satisfaction
+                'sdk_impact': 'Medium'
+            }
+            
+            results.append(result)
+        
+        return results
