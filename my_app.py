@@ -7,6 +7,7 @@ from utils.database import TicketDB
 from utils.data_processor import DataProcessor
 import json
 import os
+import time
 
 # Page config - MUST be first Streamlit command
 st.set_page_config(
