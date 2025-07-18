@@ -66,6 +66,20 @@ st.markdown("""
         border-left: 4px solid #2196f3;
         margin: 1rem 0;
     }
+    .danger-zone {
+        background-color: #fff5f5;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #e53e3e;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #fffdf0;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #f6ad55;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -372,6 +386,59 @@ def show_sidebar():
         
         st.divider()
         
+        # Database Management Section
+        st.markdown("### 🗄️ Database Management")
+        
+        if st.session_state.get('db_initialized'):
+            try:
+                db_size = st.session_state.db.get_database_size()
+                st.metric("Database Size", db_size)
+                
+                total_records = st.session_state.db.get_total_tickets()
+                st.metric("Total Records", total_records)
+                
+            except Exception as e:
+                st.info("Database info unavailable")
+        
+        # Clear Database Section - DANGER ZONE
+        with st.expander("⚠️ Danger Zone", expanded=False):
+            st.markdown("""
+            <div class="danger-zone">
+                <h4>🚨 Clear All Data</h4>
+                <p><strong>Warning:</strong> This will permanently delete all analyzed tickets, summaries, and insights from the database.</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Two-step confirmation for safety
+            if 'clear_db_confirm_step' not in st.session_state:
+                st.session_state.clear_db_confirm_step = 0
+            
+            if st.session_state.clear_db_confirm_step == 0:
+                if st.button("🗑️ Clear Database", type="secondary", use_container_width=True):
+                    st.session_state.clear_db_confirm_step = 1
+                    st.rerun()
+            
+            elif st.session_state.clear_db_confirm_step == 1:
+                st.markdown("""
+                <div class="warning-box">
+                    <p><strong>⚠️ Are you absolutely sure?</strong></p>
+                    <p>This action cannot be undone. All your analyzed data will be lost.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.session_state.clear_db_confirm_step = 0
+                        st.rerun()
+                
+                with col2:
+                    if st.button("💥 YES, DELETE ALL", type="primary", use_container_width=True):
+                        clear_database()
+        
+        st.divider()
+        
         # Navigation Help
         st.markdown("### 📖 Navigation Guide")
         st.markdown("""
@@ -398,6 +465,41 @@ def show_sidebar():
                     st.text(f"DB Size: {db_size}")
                 except:
                     st.text("DB Size: Unknown")
+
+def clear_database():
+    """Clear all data from the database"""
+    
+    try:
+        with st.spinner("🗑️ Clearing database..."):
+            # Get database instance
+            db = st.session_state.db
+            
+            # Clear all tables
+            with db.engine.connect() as conn:
+                # Delete all ticket analysis data
+                conn.execute(db.engine.execute("DELETE FROM ticket_analysis"))
+                
+                # Delete all monthly summaries
+                conn.execute(db.engine.execute("DELETE FROM monthly_summary"))
+                
+                # Commit the changes
+                conn.commit()
+            
+            st.success("✅ Database cleared successfully!")
+            
+            # Reset confirmation step
+            st.session_state.clear_db_confirm_step = 0
+            
+            # Show success message with balloons
+            st.balloons()
+            
+            # Auto-refresh after a moment
+            time.sleep(2)
+            st.rerun()
+            
+    except Exception as e:
+        st.error(f"❌ Error clearing database: {e}")
+        st.session_state.clear_db_confirm_step = 0
 
 if __name__ == "__main__":
     main()
