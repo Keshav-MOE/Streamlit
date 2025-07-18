@@ -59,6 +59,13 @@ st.markdown("""
         border-radius: 10px;
         margin: 1rem 0;
     }
+    .api-key-box {
+        background-color: #e3f2fd;
+        padding: 1rem;
+        border-radius: 10px;
+        border-left: 4px solid #2196f3;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -93,9 +100,10 @@ def initialize_session_state():
         # Try to get API key from Streamlit secrets first
         try:
             gemini_key = st.secrets.get("GEMINI_API_KEY", "")
-            if gemini_key:
-                st.session_state.gemini_api_key = gemini_key
+            if gemini_key and gemini_key.strip():
+                st.session_state.gemini_api_key = gemini_key.strip()
                 st.session_state.api_configured = True
+                test_api_key_validity()
             else:
                 st.session_state.api_configured = False
         except Exception:
@@ -117,6 +125,17 @@ def initialize_session_state():
     if 'processor' not in st.session_state:
         st.session_state.processor = DataProcessor()
 
+def test_api_key_validity():
+    """Test if the current API key is valid"""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=st.session_state.gemini_api_key)
+        # Simple test - just configure, don't call API yet
+        return True
+    except Exception:
+        st.session_state.api_configured = False
+        return False
+
 def show_home_page():
     """Show the main home page content"""
     
@@ -128,10 +147,11 @@ def show_home_page():
     track trends, and generate actionable insights for better customer support.
     
     **How to get started:**
-    1. 📁 Upload your monthly ticket data (details + conversations)
-    2. 🔄 Let AI analyze the tickets in batches
-    3. 📊 Explore insights in the dashboard
-    4. 📈 Track trends across months
+    1. 🔑 Configure your Gemini API key in the sidebar
+    2. 📁 Upload your monthly ticket data (details + conversations)
+    3. 🔄 Let AI analyze the tickets in batches  
+    4. 📊 Explore insights in the dashboard
+    5. 📈 Track trends across months
     """)
     
     # Quick Status Overview
@@ -205,6 +225,16 @@ def show_home_page():
         if st.button("📈 View Trends", use_container_width=True):
             st.switch_page("pages/4_📈_Trends.py")
     
+    # Show API configuration notice if not configured
+    if not st.session_state.get('api_configured', False):
+        st.markdown("""
+        <div class="api-key-box">
+            <h4>🔑 API Key Required</h4>
+            <p>To analyze tickets with AI, you need to configure your Gemini API key in the sidebar.</p>
+            <p><strong>Get your free API key:</strong> <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     # Recent Activity
     if st.session_state.get('db_initialized'):
         st.markdown("### 📋 Recent Activity")
@@ -212,14 +242,14 @@ def show_home_page():
             recent_data = st.session_state.db.get_recent_activity()
             if not recent_data.empty:
                 st.dataframe(
-                    recent_data.head(10),
+                    recent_data.head(5),
                     use_container_width=True,
                     hide_index=True
                 )
             else:
                 st.info("No recent activity. Upload some data to get started!")
         except Exception as e:
-            st.info("No activity data available yet.")
+            st.info("Upload and analyze some tickets to see recent activity here.")
 
 def show_sidebar():
     """Show sidebar content"""
@@ -229,28 +259,93 @@ def show_sidebar():
         
         # API Key Configuration
         if not st.session_state.get('api_configured', False):
-            with st.expander("⚙️ Configure Gemini API", expanded=True):
+            with st.expander("🔑 Configure Gemini API", expanded=True):
                 st.warning("⚠️ Gemini API key required for AI analysis")
+                
+                st.markdown("""
+                **Get Your Free API Key:**
+                1. Visit: https://makersuite.google.com/app/apikey
+                2. Sign in with Google account
+                3. Click "Create API Key" 
+                4. Copy the key (starts with 'AIza...')
+                5. Paste it below:
+                """)
+                
                 api_key_input = st.text_input(
                     "Enter Gemini API Key:", 
                     type="password",
-                    help="Get your API key from Google AI Studio (https://makersuite.google.com/app/apikey)"
+                    placeholder="AIzaSy...",
+                    help="Your API key should start with 'AIza'"
                 )
                 
-                if st.button("💾 Save API Key", use_container_width=True):
-                    if api_key_input.strip():
-                        st.session_state.gemini_api_key = api_key_input.strip()
-                        st.session_state.api_configured = True
-                        st.success("✅ API Key saved successfully!")
-                        st.rerun()
-                    else:
-                        st.error("Please enter a valid API key")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("💾 Save Key", use_container_width=True):
+                        if api_key_input.strip():
+                            if api_key_input.startswith('AIza'):
+                                try:
+                                    # Test the API key immediately
+                                    import google.generativeai as genai
+                                    genai.configure(api_key=api_key_input.strip())
+                                    
+                                    # Try to create analyzer
+                                    test_analyzer = GeminiTicketAnalyzer(api_key=api_key_input.strip())
+                                    
+                                    # If we get here, the API key works
+                                    st.session_state.gemini_api_key = api_key_input.strip()
+                                    st.session_state.api_configured = True
+                                    st.session_state.analyzer = test_analyzer
+                                    st.session_state.analyzer_initialized = True
+                                    
+                                    st.success("✅ API Key saved and validated!")
+                                    st.rerun()
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ API Key validation failed: {str(e)}")
+                            else:
+                                st.error("❌ Invalid format. API key should start with 'AIza'")
+                        else:
+                            st.error("❌ Please enter an API key")
+                
+                with col2:
+                    if st.button("🧪 Test Key", use_container_width=True):
+                        if api_key_input.strip():
+                            try:
+                                import google.generativeai as genai
+                                genai.configure(api_key=api_key_input.strip())
+                                models = list(genai.list_models())
+                                st.success(f"✅ Valid! Found {len(models)} models")
+                            except Exception as e:
+                                st.error(f"❌ Invalid key: {str(e)}")
+                        else:
+                            st.error("❌ Enter key to test")
         else:
-            st.success("✅ API Key configured")
-            if st.button("🔄 Reset API Key"):
-                st.session_state.api_configured = False
-                st.session_state.pop('gemini_api_key', None)
-                st.rerun()
+            st.success("✅ API Key Configured")
+            
+            # Show masked API key
+            if hasattr(st.session_state, 'gemini_api_key'):
+                masked_key = st.session_state.gemini_api_key[:12] + "..." if len(st.session_state.gemini_api_key) > 12 else "***"
+                st.code(f"Key: {masked_key}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔄 Reset Key", use_container_width=True):
+                    st.session_state.api_configured = False
+                    st.session_state.analyzer_initialized = False
+                    for key in ['gemini_api_key', 'analyzer']:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+            
+            with col2:
+                if st.button("🧪 Test API", use_container_width=True):
+                    try:
+                        if st.session_state.get('analyzer_initialized'):
+                            st.success("✅ API is working!")
+                        else:
+                            st.error("❌ Analyzer not initialized")
+                    except Exception as e:
+                        st.error(f"❌ API Error: {e}")
         
         st.divider()
         
@@ -262,12 +357,18 @@ def show_sidebar():
                 stats = st.session_state.db.get_quick_stats()
                 
                 st.metric("Total Months", stats.get('total_months', 0))
-                st.metric("This Month's Tickets", stats.get('current_month_tickets', 0))
+                st.metric("Current Month Tickets", stats.get('current_month_tickets', 0))
                 st.metric("Avg Priority Score", f"{stats.get('avg_priority', 0):.1f}")
-                st.metric("Top Issue Category", stats.get('top_category', 'N/A'))
+                
+                top_cat = stats.get('top_category', 'N/A')
+                if len(top_cat) > 15:
+                    top_cat = top_cat[:15] + "..."
+                st.metric("Top Category", top_cat)
                 
             except Exception as e:
                 st.info("Stats will appear after processing tickets")
+        else:
+            st.info("Database not initialized")
         
         st.divider()
         
@@ -287,16 +388,16 @@ def show_sidebar():
         
         # System Info
         with st.expander("ℹ️ System Information"):
-            st.text(f"Streamlit version: {st.__version__}")
+            st.text(f"Streamlit: {st.__version__}")
             st.text(f"Database: SQLite")
-            st.text(f"AI Model: Gemini Pro")
+            st.text(f"AI Model: Gemini 1.5 Flash")
             
             if st.session_state.get('db_initialized'):
                 try:
                     db_size = st.session_state.db.get_database_size()
-                    st.text(f"Database size: {db_size}")
+                    st.text(f"DB Size: {db_size}")
                 except:
-                    st.text("Database size: Unknown")
+                    st.text("DB Size: Unknown")
 
 if __name__ == "__main__":
     main()
