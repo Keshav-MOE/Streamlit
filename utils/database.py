@@ -48,6 +48,45 @@ class TicketDB:
             conn.execute(text(create_analysis_table))
             conn.execute(text(create_summary_table))
             conn.commit()
+
+    def clear_all_data(self):
+    """Clear all data from the database"""
+    try:
+        with self.engine.connect() as conn:
+            # Clear ticket analysis data
+            conn.execute(text("DELETE FROM ticket_analysis"))
+            # Clear monthly summaries
+            conn.execute(text("DELETE FROM monthly_summary"))
+            conn.commit()
+        return True
+    except Exception as e:
+        st.error(f"Failed to clear database: {e}")
+        return False
+
+def get_table_counts(self):
+    """Get count of records in each table"""
+    try:
+        with self.engine.connect() as conn:
+            ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
+            summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
+            
+            return {
+                'tickets': ticket_count,
+                'summaries': summary_count,
+                'total': ticket_count + summary_count
+            }
+    except Exception as e:
+        return {'tickets': 0, 'summaries': 0, 'total': 0}
+
+def vacuum_database(self):
+    """Optimize database after clearing data"""
+    try:
+        with self.engine.connect() as conn:
+            conn.execute(text("VACUUM"))
+        return True
+    except Exception as e:
+        st.warning(f"Database optimization failed: {e}")
+        return False
     
     def get_analysis_data(self, month=None):
         """Get analysis data with optional month filter - NO CACHING"""
