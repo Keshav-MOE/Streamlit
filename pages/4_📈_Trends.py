@@ -1,13 +1,3 @@
-# At the top of pages/4_📈_Trends.py, replace:
-import scipy.stats as stats
-
-# With:
-try:
-    import scipy.stats as stats
-    SCIPY_AVAILABLE = True
-except ImportError:
-    SCIPY_AVAILABLE = False
-    st.warning("⚠️ Scipy not available - some advanced forecasting features disabled")
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -18,13 +8,20 @@ import numpy as np
 from datetime import datetime, timedelta
 from collections import Counter
 
+# With:
+try:
+    import scipy.stats as stats
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+
 # REMOVE THIS LINE - it causes the error:
 # st.set_page_config(...)
 
 # Try to import scipy, make it optional
 try:
     import scipy.stats as stats
-    SCIPY_AVAILABLE = True
+    SCIPY_AVAILABLE = True 
 except ImportError:
     SCIPY_AVAILABLE = False
 

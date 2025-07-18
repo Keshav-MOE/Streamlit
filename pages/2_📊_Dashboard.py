@@ -7,11 +7,11 @@ import json
 import numpy as np
 from datetime import datetime, timedelta
 
-st.set_page_config(
-    page_title="Analytics Dashboard",
-    page_icon="📊",
-    layout="wide"
-)
+# st.set_page_config(
+#     page_title="Analytics Dashboard",
+#     page_icon="📊",
+#     layout="wide"
+# )
 
 # Custom CSS
 st.markdown("""

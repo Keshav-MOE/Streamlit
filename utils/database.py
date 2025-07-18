@@ -50,6 +50,7 @@ class TicketDB:
     """
     def __init__(self, db_path: str = 'ticket_analysis.db'):
         """Initializes the database engine and creates tables if they don't exist."""
+        self.db_path = db_path
         self.engine: Engine = create_engine(f'sqlite:///{db_path}')
         self._create_tables()
 
@@ -102,6 +103,15 @@ class TicketDB:
             return True
         except Exception:
             return False
+
+    def get_total_tickets(self) -> int:
+        """Gets the total number of tickets from the database."""
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).scalar_one_or_none()
+                return result or 0
+        except Exception:
+            return 0
 
     def get_analysis_data(self, month: Optional[str] = None) -> pd.DataFrame:
         """Retrieves analysis data, optionally filtered by month."""
@@ -226,7 +236,10 @@ class TicketDB:
 
     def get_quick_stats(self) -> Dict[str, Any]:
         """Retrieves quick statistics for a dashboard display."""
-        query = """
+        # Get the most recent month from the summary table for accuracy
+        latest_month_query = "SELECT month FROM monthly_summary ORDER BY month DESC LIMIT 1"
+        
+        stats_query = """
         SELECT
             COUNT(DISTINCT month) as total_months,
             (SELECT COUNT(*) FROM ticket_analysis) as total_tickets,
@@ -234,19 +247,120 @@ class TicketDB:
             (SELECT ticket_category FROM ticket_analysis GROUP BY ticket_category ORDER BY COUNT(*) DESC LIMIT 1) as top_category
         FROM ticket_analysis;
         """
+        
         try:
             with self.engine.connect() as conn:
-                result = conn.execute(text(query)).fetchone()
+                latest_month_result = conn.execute(text(latest_month_query)).scalar_one_or_none()
+                latest_month = latest_month_result if latest_month_result else ""
+
+                current_month_tickets = 0
+                if latest_month:
+                    current_month_tickets_query = "SELECT COUNT(*) FROM ticket_analysis WHERE month = :month"
+                    current_month_tickets = conn.execute(text(current_month_tickets_query), {'month': latest_month}).scalar_one()
+
+                result = conn.execute(text(stats_query)).fetchone()
+
             if result:
                 stats = {
                     'total_months': result[0] or 0,
                     'total_tickets': result[1] or 0,
                     'avg_priority': round(result[2] or 0, 1),
-                    'top_category': result[3] or 'N/A'
+                    'top_category': result[3] or 'N/A',
+                    'current_month_tickets': current_month_tickets or 0
                 }
                 return _to_native_type(stats)
             
         except Exception:
             pass # Fallthrough to return default
         
-        return {'total_months': 0, 'total_tickets': 0, 'avg_priority': 0.0, 'top_category': 'N/A'}
+        return {'total_months': 0, 'total_tickets': 0, 'avg_priority': 0.0, 'top_category': 'N/A', 'current_month_tickets': 0}
+
+    def get_processing_status(self, month: str) -> bool:
+        """Checks if a given month has already been processed."""
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT 1 FROM ticket_analysis WHERE month = :month LIMIT 1"),
+                    {'month': month}
+                ).scalar_one_or_none()
+                return result is not None
+        except Exception:
+            return False
+
+    def clear_month_data(self, month: str) -> bool:
+        """Clears all data for a specific month."""
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(text("DELETE FROM ticket_analysis WHERE month = :month"), {'month': month})
+                conn.execute(text("DELETE FROM monthly_summary WHERE month = :month"), {'month': month})
+                conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def debug_database_contents(self) -> List[str]:
+        """Returns a list of strings with debug information about the database."""
+        debug_info = []
+        try:
+            with self.engine.connect() as conn:
+                tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table';")).fetchall()
+                debug_info.append(f"✅ Tables found: {[table[0] for table in tables]}")
+                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).scalar_one()
+                debug_info.append(f"✅ ticket_analysis rows: {ticket_count}")
+                if ticket_count > 0:
+                    latest_ticket = conn.execute(text("SELECT created_at FROM ticket_analysis ORDER BY created_at DESC LIMIT 1")).scalar_one()
+                    debug_info.append(f"✅ Latest ticket entry: {latest_ticket}")
+                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).scalar_one()
+                debug_info.append(f"✅ monthly_summary rows: {summary_count}")
+                if summary_count > 0:
+                    latest_summary = conn.execute(text("SELECT month FROM monthly_summary ORDER BY month DESC LIMIT 1")).scalar_one()
+                    debug_info.append(f"✅ Latest summary month: {latest_summary}")
+        except Exception as e:
+            debug_info.append(f"❌ Error during debug check: {e}")
+        return debug_info
+
+    def get_recent_activity(self, limit: int = 5) -> pd.DataFrame:
+        """Retrieves the most recent analysis activities."""
+        query = "SELECT created_at, month, batch_number, ticket_id, ticket_category, priority_score FROM ticket_analysis ORDER BY created_at DESC LIMIT :limit"
+        try:
+            return pd.read_sql(query, self.engine, params={'limit': limit})
+        except Exception:
+            return pd.DataFrame()
+
+    def get_database_size(self) -> str:
+        """Returns the database file size as a formatted string."""
+        try:
+            size_bytes = os.path.getsize(self.db_path)
+            if size_bytes < 1024: return f"{size_bytes} B"
+            elif size_bytes < 1024**2: return f"{size_bytes/1024:.2f} KB"
+            else: return f"{size_bytes/1024**2:.2f} MB"
+        except OSError:
+            return "N/A"
+
+    def get_table_counts(self) -> Dict[str, int]:
+        """Returns the row counts for main tables."""
+        counts = {'tickets': 0, 'summaries': 0}
+        try:
+            with self.engine.connect() as conn:
+                counts['tickets'] = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).scalar_one()
+                counts['summaries'] = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).scalar_one()
+        except Exception: pass
+        return counts
+
+    def vacuum_database(self):
+        """Runs the VACUUM command to rebuild the database file."""
+        try:
+            with self.engine.connect() as conn:
+                conn.execution_options(isolation_level="AUTOCOMMIT").execute(text("VACUUM"))
+        except Exception: pass
+
+    def force_verify_data(self) -> Dict[str, Any]:
+        """Performs a quick verification of database contents."""
+        try:
+            with self.engine.connect() as conn:
+                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).scalar_one()
+                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).scalar_one()
+                months = conn.execute(text("SELECT DISTINCT month FROM ticket_analysis ORDER BY month DESC")).scalars().all()
+                return {'ticket_count': ticket_count, 'summary_count': summary_count, 'months': months, 'verified_at': datetime.now().isoformat()}
+        except Exception as e:
+            return {'error': str(e)}

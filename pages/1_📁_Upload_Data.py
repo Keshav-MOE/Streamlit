@@ -375,13 +375,13 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
                 raise ValueError("No analysis results returned")
             
             # Save to database with verification
-            save_success = st.session_state.db.save_batch_analysis(
+            save_success, num_saved = st.session_state.db.save_batch_analysis(
                 month_year, 
-                batch_num,
+                batch_num + 1, # Batch numbers are 1-based
                 analysis_results
             )
             
-            if save_success:
+            if save_success and num_saved > 0:
                 batch_time = time.time() - batch_start_time
                 processing_times.append(batch_time)
                 
@@ -406,7 +406,7 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
                 with log_container:
                     st.text(f"✅ Batch {batch_num + 1}: Success in {batch_time:.1f}s")
             else:
-                raise ValueError("Database save failed")
+                raise ValueError(f"Database save failed. Success: {save_success}, Saved: {num_saved}")
             
         except Exception as e:
             batch_time = time.time() - batch_start_time
@@ -511,8 +511,8 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
         try:
             with st.spinner("📊 Generating monthly summary..."):
                 summary = st.session_state.db.generate_monthly_summary(month_year)
-                if summary and summary.get('total_tickets', 0) > 0:
-                    st.session_state.db.save_monthly_summary(month_year, summary)
+                if summary and summary.get('total_tickets', 0) > 0: # Check if summary is valid
+                    st.session_state.db.save_monthly_summary(summary)
                     
                     # Show summary preview
                     with results_container:
@@ -523,10 +523,6 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
                             st.metric("Tickets Processed", f"{summary['total_tickets']:,}")
                         with col2:
                             st.metric("Avg Priority", f"{summary['avg_priority']:.1f}/10")
-                        with col3:
-                            st.metric("Avg Satisfaction", f"{summary['avg_satisfaction']:.1f}/5")
-                        with col4:
-                            st.metric("Avg Resolution", f"{summary['avg_resolution_time']:.1f}h")
                         
                         # Show top issues and improvements
                         col1, col2 = st.columns(2)
@@ -534,7 +530,8 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
                         with col1:
                             if summary.get('top_sdk_issues'):
                                 st.markdown("**🔥 Top SDK Issues:**")
-                                for issue, count in list(summary['top_sdk_issues'].items())[:5]:
+                                top_issues = json.loads(summary['top_sdk_issues'])
+                                for issue, count in list(top_issues.items())[:5]:
                                     st.write(f"• {issue}: {count} tickets")
                             else:
                                 st.info("No SDK issues data available")
@@ -542,7 +539,8 @@ def process_tickets(details_df, comments_df, month_year, batch_size, max_tickets
                         with col2:
                             if summary.get('improvement_priorities'):
                                 st.markdown("**💡 Top Improvements:**")
-                                for improvement, count in list(summary['improvement_priorities'].items())[:5]:
+                                top_improvements = json.loads(summary['improvement_priorities'])
+                                for improvement, count in list(top_improvements.items())[:5]:
                                     st.write(f"• {improvement}: {count} mentions")
                             else:
                                 st.info("No improvement data available")

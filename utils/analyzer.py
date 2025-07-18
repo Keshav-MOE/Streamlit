@@ -243,62 +243,31 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
         return prompt
     
     def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
-        """Parse and validate Gemini's JSON response with debug info"""
-        
+        """Parses and validates Gemini's JSON response with debug info."""
         st.info(f"📄 Response length: {len(response_text)} characters")
-        
-        # Show first 200 chars of response for debugging
-        with st.expander("🔍 AI Response Preview"):
-            st.text(response_text[:500] + "..." if len(response_text) > 500 else response_text)
-        
         try:
-            # Clean the response text
-            response_text = response_text.strip()
-            
-            # Remove markdown formatting if present
-            if '```json' in response_text:
-                start = response_text.find('```json') + 7
-                end = response_text.find('```', start)
-                if end != -1:
-                    response_text = response_text[start:end].strip()
-                    st.info("🧹 Removed JSON markdown formatting")
-            elif '```' in response_text:
-                start = response_text.find('```') + 3
-                end = response_text.find('```', start)
-                if end != -1:
-                    response_text = response_text[start:end].strip()
-                    st.info("🧹 Removed generic markdown formatting")
-            
-            # Find JSON array bounds
-            start_idx = response_text.find('[')
-            end_idx = response_text.rfind(']') + 1
-            
-            if start_idx != -1 and end_idx > start_idx:
-                json_content = response_text[start_idx:end_idx]
-                st.info(f"📋 Extracted JSON content: {len(json_content)} characters")
-                
-                results = json.loads(json_content)
-                st.success(f"✅ Successfully parsed JSON with {len(results)} items")
-                
-                # Validate results
-                if isinstance(results, list):
-                    validated_results = []
-                    for i, result in enumerate(results):
-                        # Ensure we have a ticket_id from the original data
-                        if i < len(df):
-                            original_row = df.iloc[i]
-                            result['ticket_id'] = str(original_row.get('ticket_id', 
-                                                                     original_row.get('Ticket_ID', f'ticket_{i}')))
-                        
-                        validated_result = self._validate_analysis_result(result)
-                        validated_results.append(validated_result)
-                    
-                    st.success(f"✅ Validated {len(validated_results)} analysis results")
-                    return validated_results
-            
-            # If parsing fails, create fallback
-            raise ValueError("Could not parse JSON response")
-                
+            # Use a single regex to find the JSON array, making it very robust
+            json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+            if not json_match:
+                st.warning("Could not find a JSON array in the AI response.")
+                raise ValueError("No JSON array found in the response.")
+
+            json_content = json_match.group(0)
+            results = json.loads(json_content)
+
+            if isinstance(results, list):
+                validated_results = []
+                # Correlate results with original dataframe to ensure ticket_id integrity
+                for i, result in enumerate(results):
+                    if i < len(df):
+                        original_row = df.iloc[i]
+                        result['ticket_id'] = str(original_row.get('ticket_id', original_row.get('Ticket_ID', f'ticket_{i}')))
+                    validated_result = self._validate_analysis_result(result)
+                    validated_results.append(validated_result)
+                return validated_results
+
+            raise ValueError("Parsed JSON is not a list.")
+
         except Exception as e:
             st.warning(f"⚠️ Response parsing failed: {e}. Using fallback analysis.")
             return self._create_fallback_analysis(df)

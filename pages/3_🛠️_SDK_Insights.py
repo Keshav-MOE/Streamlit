@@ -11,11 +11,11 @@ from collections import Counter
 # import matplotlib.pyplot as plt
 # import io
 
-st.set_page_config(
-    page_title="SDK Insights",
-    page_icon="🛠️",
-    layout="wide"
-)
+# st.set_page_config(
+#     page_title="SDK Insights",
+#     page_icon="🛠️",
+#     layout="wide"
+# )
 
 # Custom CSS (keep your existing CSS)
 st.markdown("""
