@@ -1,27 +1,45 @@
 import google.generativeai as genai
-import pandas as pd  # ← ADD THIS
+import pandas as pd
 import json
 import time
 import streamlit as st
-from typing import List, Dict  # ← ADD THIS
+from typing import List, Dict
+import os
+import re
 
 class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
-        if api_key:
-            genai.configure(api_key=api_key)
-        else:
-            # Try to get from Streamlit secrets
-            try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            except:
-                raise ValueError("Gemini API key not found")
+        self.api_key = api_key
+        self.model = None
         
-        self.model = genai.GenerativeModel('gemini-2.0-flash')
+        # Try to configure API key
+        if not self._configure_api_key():
+            raise ValueError("❌ Gemini API key configuration failed")
+        
+        # Initialize model
+        try:
+            # Try different model names in order of preference
+            model_names = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-flash']
+            
+            for model_name in model_names:
+                try:
+                    self.model = genai.GenerativeModel(model_name)
+                    st.info(f"✅ Using model: {model_name}")
+                    break
+                except Exception as e:
+                    continue
+            
+            if not self.model:
+                raise ValueError("No available Gemini models found")
+                
+        except Exception as e:
+            st.error(f"❌ Failed to initialize Gemini model: {e}")
+            raise ValueError(f"Model initialization failed: {e}")
         
         # SDK-focused analysis criteria
         self.sdk_focus_areas = [
             "API Integration Issues",
-            "Documentation Problems",
+            "Documentation Problems", 
             "Code Examples Missing",
             "Error Handling Issues",
             "Performance Problems",
@@ -32,174 +50,130 @@ class GeminiTicketAnalyzer:
             "Compatibility Problems"
         ]
     
+    def _configure_api_key(self) -> bool:
+        """Configure Gemini API key with multiple fallback options"""
+        
+        api_key = None
+        
+        try:
+            # 1. Direct parameter
+            if self.api_key:
+                api_key = self.api_key
+            
+            # 2. Streamlit secrets
+            elif hasattr(st, 'secrets') and 'GEMINI_API_KEY' in st.secrets:
+                api_key = st.secrets['GEMINI_API_KEY']
+            
+            # 3. Environment variable
+            elif os.getenv('GEMINI_API_KEY'):
+                api_key = os.getenv('GEMINI_API_KEY')
+            
+            # 4. Session state (if user entered it)
+            elif hasattr(st.session_state, 'gemini_api_key'):
+                api_key = st.session_state.gemini_api_key
+            
+            if not api_key:
+                st.error("❌ No Gemini API key found!")
+                return False
+            
+            # Validate API key format
+            if not api_key.startswith('AIza'):
+                st.error("❌ Invalid API key format. Gemini API keys should start with 'AIza'")
+                return False
+            
+            # Configure Gemini
+            genai.configure(api_key=api_key)
+            
+            # Test the API key with a simple call
+            self._test_api_key()
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"❌ API key configuration error: {e}")
+            return False
+    
+    def _test_api_key(self):
+        """Test if the API key works"""
+        try:
+            # Try to list models to test the API key
+            models = list(genai.list_models())
+            available_models = [m.name for m in models]
+            
+            # Check if our preferred model is available
+            preferred_models = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+            
+            found_model = False
+            for model in preferred_models:
+                if model in available_models:
+                    found_model = True
+                    break
+            
+            if not found_model:
+                st.warning(f"⚠️ Preferred models not found. Available: {available_models[:3]}")
+                
+        except Exception as e:
+            st.error(f"❌ API key test failed: {e}")
+            raise ValueError(f"Invalid API key: {e}")
+    
     def analyze_batch(self, batch_df: pd.DataFrame) -> List[Dict]:
         """Analyze a batch of tickets with focus on SDK improvements"""
-        processing_df = batch_df.head(20)
+        
+        # Limit batch size to avoid token limits
+        processing_df = batch_df.head(10)  # Process 10 tickets at a time
+        
         try:
+            # Create focused prompt for SDK analysis
             prompt = self._create_sdk_focused_prompt(processing_df)
+            
+            # Call Gemini API with updated configuration
             response = self.model.generate_content(
                 prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.1,  # Lower temperature for more consistent analysis
                     max_output_tokens=4096,
+                    top_p=0.8,
+                    top_k=40
                 )
             )
+            
+            # Parse response
             analysis_results = self._parse_gemini_response(response.text, processing_df)
+            
             return analysis_results
+            
         except Exception as e:
-            st.error(f"Gemini API Error: {e}")
+            st.warning(f"⚠️ Gemini API Error: {e}")
+            st.info("Using fallback analysis...")
+            # Return fallback analysis
             return self._create_fallback_analysis(processing_df)
-
+    
     def _create_sdk_focused_prompt(self, df: pd.DataFrame) -> str:
         """Create a comprehensive SDK-focused analysis prompt"""
+        
         ticket_summaries = []
         for idx, row in df.iterrows():
+            # Handle both original and standardized column names
             summary = {
-                'id': str(row.get('ticket_id', f'ticket_{idx}')),
-                'subject': str(row.get('ticket_sub_name', 'No Subject'))[:200],
-                'resolution_time': str(row.get('resolution_time', 'Unknown')),
-                'conversation': str(row.get('ticket_conversation', 'No conversation'))[:800],
-                'category': str(row.get('category', 'General'))
+                'id': str(row.get('ticket_id', row.get('Ticket_ID', f'ticket_{idx}'))),
+                'subject': str(row.get('ticket_sub_name', row.get('Ticket subject', 'No Subject')))[:150],
+                'organization': str(row.get('organization_name', row.get('Ticket organization name', 'Unknown')))[:50],
+                'customer_tier': str(row.get('customer_tier', row.get('Customer Tier ', 'Unknown')))[:20],
+                'sdk': str(row.get('sdk_name', row.get('SDK', 'Unknown SDK')))[:50],
+                'sdk_issue_type': str(row.get('sdk_issue_category', row.get('SDK Issue Types', 'General')))[:100],
+                'resolution_time': str(row.get('resolution_time_hours', row.get('Full Resolution Time', 'Unknown'))),
+                'call_happened': str(row.get('did_call_happened', row.get('Call Happened for the Customer?', 'Unknown'))),
+                'conversation': str(row.get('ticket_conversation', row.get('Comments', 'No conversation')))[:400]
             }
             ticket_summaries.append(summary)
+        
+        # Create focused prompt
         prompt = f"""
-You are an expert SDK analyst reviewing support tickets to identify improvement opportunities.
+You are an expert SDK support analyst. Analyze these {len(ticket_summaries)} support tickets to identify improvement opportunities.
 
-Analyze these {len(ticket_summaries)} support tickets and return a JSON array with analysis for each ticket.
-
-For each ticket, focus on:
-1. SDK Integration challenges
-2. Documentation gaps  
-3. Developer experience issues
-4. API/SDK bugs or limitations
-5. Feature requests
-6. Performance concerns
-
-SDK Focus Areas to consider:
-{', '.join(self.sdk_focus_areas)}
-
-Return JSON array in this exact format:
-[
-  {{
-    "ticket_id": "ticket_id_here",
-    "ticket_category": "category_name",
-    "sdk_issues": ["specific_issue_1", "specific_issue_2"],
-    "improvement_suggestions": ["suggestion_1", "suggestion_2"], 
-    "priority_score": 1-10,
-    "resolution_time_hours": estimated_hours,
-    "customer_satisfaction": 1-5,
-    "sdk_impact": "High/Medium/Low"
-  }}
-]
-
-Tickets to analyze:
-"""
-        for i, ticket in enumerate(ticket_summaries):
-            prompt += f"""
-
-Ticket {i+1}:
-ID: {ticket['id']}
-Subject: {ticket['subject']}
-Resolution Time: {ticket['resolution_time']}
-Category: {ticket['category']}
-Conversation: {ticket['conversation']}
----
-"""
-        prompt += """
-
-Return ONLY the JSON array. No markdown formatting, no explanations, just valid JSON.
-"""
-        return prompt
-
-    def _prepare_tickets_for_analysis(self, df: pd.DataFrame) -> str:
-        """Convert DataFrame to text for Gemini - updated for your data structure"""
-        tickets_text = ""
-        for idx, row in df.head(10).iterrows():  # Limit to avoid token limits
-            tickets_text += f"""
-Ticket ID: {row.get('ticket_id', row.get('Ticket_ID', 'N/A'))}
-Subject: {row.get('ticket_sub_name', row.get('Ticket subject', 'N/A'))}
-Organization: {row.get('organization_name', row.get('Ticket organization name', 'N/A'))}
-Customer Tier: {row.get('customer_tier', row.get('Customer Tier ', 'N/A'))}
-SDK: {row.get('sdk_name', row.get('SDK', 'N/A'))}
-SDK Issue Type: {row.get('sdk_issue_category', row.get('SDK Issue Types', 'N/A'))}
-Resolution Time: {row.get('resolution_time_hours', row.get('Full Resolution Time', 'N/A'))}
-Call Happened: {row.get('did_call_happened', row.get('Call Happened for the Customer?', 'N/A'))}
-Conversation: {str(row.get('ticket_conversation', row.get('Comments', 'No conversation')))[:500]}
----
-"""
-        return tickets_text
-
-    def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
-        """Parse and validate Gemini's JSON response"""
-        try:
-            response_text = response_text.strip()
-            if response_text.startswith('```json'):
-                response_text = response_text[7:]
-            if response_text.startswith('```'):
-                response_text = response_text[3:]
-            if response_text.endswith('```'):
-                response_text = response_text[:-3]
-            response_text = response_text.strip()
-            start_idx = response_text.find('[')
-            end_idx = response_text.rfind(']') + 1
-            if start_idx != -1 and end_idx > start_idx:
-                json_content = response_text[start_idx:end_idx]
-                results = json.loads(json_content)
-                validated_results = []
-                for result in results:
-                    validated_result = self._validate_analysis_result(result)
-                    validated_results.append(validated_result)
-                return validated_results
-            else:
-                raise ValueError("No valid JSON array found in response")
-        except Exception as e:
-            st.warning(f"Failed to parse Gemini response: {e}. Using fallback analysis.")
-            return self._create_fallback_analysis(df)
-
-    def _validate_analysis_result(self, result: Dict) -> Dict:
-        """Validate and clean a single analysis result"""
-        cleaned_result = {
-            'ticket_id': str(result.get('ticket_id', 'unknown')),
-            'ticket_category': str(result.get('ticket_category', 'General')),
-            'sdk_issues': result.get('sdk_issues', []) if isinstance(result.get('sdk_issues'), list) else ['API Integration'],
-            'improvement_suggestions': result.get('improvement_suggestions', []) if isinstance(result.get('improvement_suggestions'), list) else ['Better documentation'],
-            'priority_score': max(1, min(10, int(result.get('priority_score', 5)))),
-            'resolution_time_hours': float(result.get('resolution_time_hours', 0)) if str(result.get('resolution_time_hours', 0)).replace('.','').isdigit() else 0.0,
-            'customer_satisfaction': max(1, min(5, int(result.get('customer_satisfaction', 3)))),
-            'sdk_impact': result.get('sdk_impact', 'Medium')
-        }
-        return cleaned_result
-
-    def _create_fallback_analysis(self, df: pd.DataFrame) -> List[Dict]:
-        """Create basic analysis when Gemini fails"""
-        results = []
-        for idx, row in df.iterrows():
-            subject = str(row.get('ticket_sub_name', '')).lower()
-            if any(word in subject for word in ['api', 'integration', 'sdk']):
-                category = 'SDK Integration'
-                sdk_issues = ['API Integration Issues']
-                priority = 7
-            elif any(word in subject for word in ['doc', 'guide', 'help']):
-                category = 'Documentation'
-                sdk_issues = ['Documentation Problems']
-                priority = 5
-            elif any(word in subject for word in ['error', 'bug', 'issue']):
-                category = 'Bug Report'
-                sdk_issues = ['SDK Bug Reports']
-                priority = 8
-            else:
-                category = 'General Support'
-                sdk_issues = ['General SDK Questions']
-                priority = 5
-            result = {
-                'ticket_id': str(row.get('ticket_id', f'fallback_{idx}')),
-                'ticket_category': category,
-                'sdk_issues': sdk_issues,
-                'improvement_suggestions': ['Improve documentation', 'Add code examples'],
-                'priority_score': priority,
-                'resolution_time_hours': float(row.get('resolution_time', 0)) if str(row.get('resolution_time', 0)).replace('.','').isdigit() else 0.0,
-                'customer_satisfaction': 3,
-                'sdk_impact': 'Medium'
-            }
-            results.append(result)
-        return results
+For each ticket, return a JSON object with this EXACT structure:
+{{
+    "ticket_id": "string",
+    "ticket_category": "string",
+    "sdk_issues": ["issue1", "issue2"],
+    "
