@@ -126,7 +126,23 @@ Return ONLY the JSON array. No markdown formatting, no explanations, just valid 
 """
         
         return prompt
-    
+    def _prepare_tickets_for_analysis(self, df: pd.DataFrame) -> str:
+    """Convert DataFrame to text for Gemini - updated for your data structure"""
+    tickets_text = ""
+    for idx, row in df.head(10).iterrows():  # Limit to avoid token limits
+        tickets_text += f"""
+        Ticket ID: {row.get('ticket_id', row.get('Ticket_ID', 'N/A'))}
+        Subject: {row.get('ticket_sub_name', row.get('Ticket subject', 'N/A'))}
+        Organization: {row.get('organization_name', row.get('Ticket organization name', 'N/A'))}
+        Customer Tier: {row.get('customer_tier', row.get('Customer Tier ', 'N/A'))}
+        SDK: {row.get('sdk_name', row.get('SDK', 'N/A'))}
+        SDK Issue Type: {row.get('sdk_issue_category', row.get('SDK Issue Types', 'N/A'))}
+        Resolution Time: {row.get('resolution_time_hours', row.get('Full Resolution Time', 'N/A'))}
+        Call Happened: {row.get('did_call_happened', row.get('Call Happened for the Customer?', 'N/A'))}
+        Conversation: {str(row.get('ticket_conversation', row.get('Comments', 'No conversation')))[:500]}
+        ---
+        """
+    return tickets_text
     def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
         """Parse and validate Gemini's JSON response"""
         
