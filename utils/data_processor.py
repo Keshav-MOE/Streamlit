@@ -51,7 +51,6 @@ class DataProcessor:
             st.error(f"Error during merge: {e}")
             raise
 
-    # CORRECTED: Indented this method to be part of the DataProcessor class
     def _standardize_columns_for_your_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names for your specific data structure"""
         
@@ -80,7 +79,6 @@ class DataProcessor:
 
         return df
 
-    # CORRECTED: Indented this method to be part of the DataProcessor class
     def _convert_resolution_time(self, df: pd.DataFrame) -> pd.DataFrame:
         """Convert resolution time string to a numerical value in hours."""
 
@@ -93,15 +91,10 @@ class DataProcessor:
 
             try:
                 # If already a number, assume it's hours
-                # CORRECTED: More robust check for float/integer strings
                 if time_str.replace('.', '', 1).replace('-', '', 1).isdigit():
                     return float(time_str)
                 
                 hours = 0.0
-
-                # CORRECTED: Regex patterns now use word boundaries (\b) to avoid matching
-                # letters within other words. The explicit `if 'unit' in time_str` checks
-                # have been removed as they were unreliable.
 
                 # Days
                 days_match = re.search(r'(\d+\.?\d*)\s*day', time_str)
@@ -121,13 +114,11 @@ class DataProcessor:
                 return hours if hours > 0 else 0.0
             
             except Exception:
-                # Return 0.0 if any parsing error occurs
                 return 0.0
 
         df['resolution_time_hours'] = df['resolution_time'].apply(parse_resolution_time)
         return df
 
-    # CORRECTED: Indented this method to be part of the DataProcessor class
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names for consistent processing (generic version)"""
         
@@ -167,7 +158,6 @@ class DataProcessor:
         
         return df
 
-    # CORRECTED: Indented this method to be part of the DataProcessor class
     def validate_data_quality(self, df: pd.DataFrame) -> dict:
         """Validate data quality and return quality metrics"""
         
