@@ -1,10 +1,3 @@
-import google.generativeai as genai
-import pandas as pd
-import json
-import time
-import streamlit as st
-from typing import List, Dict
-
 class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
         if api_key:
@@ -34,36 +27,24 @@ class GeminiTicketAnalyzer:
     
     def analyze_batch(self, batch_df: pd.DataFrame) -> List[Dict]:
         """Analyze a batch of tickets with focus on SDK improvements"""
-        
-        # Limit batch size to avoid token limits
         processing_df = batch_df.head(20)
-        
         try:
-            # Create focused prompt for SDK analysis
             prompt = self._create_sdk_focused_prompt(processing_df)
-            
-            # Call Gemini API
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
-                    temperature=0.1,  # Lower temperature for more consistent analysis
+                    temperature=0.1,
                     max_output_tokens=4096,
                 )
             )
-            
-            # Parse response
             analysis_results = self._parse_gemini_response(response.text, processing_df)
-            
             return analysis_results
-            
         except Exception as e:
             st.error(f"Gemini API Error: {e}")
-            # Return fallback analysis
             return self._create_fallback_analysis(processing_df)
-    
+
     def _create_sdk_focused_prompt(self, df: pd.DataFrame) -> str:
         """Create a comprehensive SDK-focused analysis prompt"""
-        
         ticket_summaries = []
         for idx, row in df.iterrows():
             summary = {
@@ -74,7 +55,6 @@ class GeminiTicketAnalyzer:
                 'category': str(row.get('category', 'General'))
             }
             ticket_summaries.append(summary)
-        
         prompt = f"""
 You are an expert SDK analyst reviewing support tickets to identify improvement opportunities.
 
@@ -107,7 +87,6 @@ Return JSON array in this exact format:
 
 Tickets to analyze:
 """
-        
         for i, ticket in enumerate(ticket_summaries):
             prompt += f"""
 
@@ -119,73 +98,59 @@ Category: {ticket['category']}
 Conversation: {ticket['conversation']}
 ---
 """
-        
         prompt += """
 
 Return ONLY the JSON array. No markdown formatting, no explanations, just valid JSON.
 """
-        
         return prompt
+
     def _prepare_tickets_for_analysis(self, df: pd.DataFrame) -> str:
-    """Convert DataFrame to text for Gemini - updated for your data structure"""
-    tickets_text = ""
-    for idx, row in df.head(10).iterrows():  # Limit to avoid token limits
-        tickets_text += f"""
-        Ticket ID: {row.get('ticket_id', row.get('Ticket_ID', 'N/A'))}
-        Subject: {row.get('ticket_sub_name', row.get('Ticket subject', 'N/A'))}
-        Organization: {row.get('organization_name', row.get('Ticket organization name', 'N/A'))}
-        Customer Tier: {row.get('customer_tier', row.get('Customer Tier ', 'N/A'))}
-        SDK: {row.get('sdk_name', row.get('SDK', 'N/A'))}
-        SDK Issue Type: {row.get('sdk_issue_category', row.get('SDK Issue Types', 'N/A'))}
-        Resolution Time: {row.get('resolution_time_hours', row.get('Full Resolution Time', 'N/A'))}
-        Call Happened: {row.get('did_call_happened', row.get('Call Happened for the Customer?', 'N/A'))}
-        Conversation: {str(row.get('ticket_conversation', row.get('Comments', 'No conversation')))[:500]}
-        ---
-        """
-    return tickets_text
+        """Convert DataFrame to text for Gemini - updated for your data structure"""
+        tickets_text = ""
+        for idx, row in df.head(10).iterrows():  # Limit to avoid token limits
+            tickets_text += f"""
+Ticket ID: {row.get('ticket_id', row.get('Ticket_ID', 'N/A'))}
+Subject: {row.get('ticket_sub_name', row.get('Ticket subject', 'N/A'))}
+Organization: {row.get('organization_name', row.get('Ticket organization name', 'N/A'))}
+Customer Tier: {row.get('customer_tier', row.get('Customer Tier ', 'N/A'))}
+SDK: {row.get('sdk_name', row.get('SDK', 'N/A'))}
+SDK Issue Type: {row.get('sdk_issue_category', row.get('SDK Issue Types', 'N/A'))}
+Resolution Time: {row.get('resolution_time_hours', row.get('Full Resolution Time', 'N/A'))}
+Call Happened: {row.get('did_call_happened', row.get('Call Happened for the Customer?', 'N/A'))}
+Conversation: {str(row.get('ticket_conversation', row.get('Comments', 'No conversation')))[:500]}
+---
+"""
+        return tickets_text
+
     def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
         """Parse and validate Gemini's JSON response"""
-        
         try:
-            # Clean the response text
             response_text = response_text.strip()
-            
-            # Remove markdown formatting if present
             if response_text.startswith('```json'):
                 response_text = response_text[7:]
             if response_text.startswith('```'):
                 response_text = response_text[3:]
             if response_text.endswith('```'):
                 response_text = response_text[:-3]
-            
             response_text = response_text.strip()
-            
-            # Find JSON array bounds
             start_idx = response_text.find('[')
             end_idx = response_text.rfind(']') + 1
-            
             if start_idx != -1 and end_idx > start_idx:
                 json_content = response_text[start_idx:end_idx]
                 results = json.loads(json_content)
-                
-                # Validate and clean results
                 validated_results = []
                 for result in results:
                     validated_result = self._validate_analysis_result(result)
                     validated_results.append(validated_result)
-                
                 return validated_results
-            
             else:
                 raise ValueError("No valid JSON array found in response")
-                
         except Exception as e:
             st.warning(f"Failed to parse Gemini response: {e}. Using fallback analysis.")
             return self._create_fallback_analysis(df)
-    
+
     def _validate_analysis_result(self, result: Dict) -> Dict:
         """Validate and clean a single analysis result"""
-        
         cleaned_result = {
             'ticket_id': str(result.get('ticket_id', 'unknown')),
             'ticket_category': str(result.get('ticket_category', 'General')),
@@ -196,18 +161,13 @@ Return ONLY the JSON array. No markdown formatting, no explanations, just valid 
             'customer_satisfaction': max(1, min(5, int(result.get('customer_satisfaction', 3)))),
             'sdk_impact': result.get('sdk_impact', 'Medium')
         }
-        
         return cleaned_result
-    
+
     def _create_fallback_analysis(self, df: pd.DataFrame) -> List[Dict]:
         """Create basic analysis when Gemini fails"""
-        
         results = []
         for idx, row in df.iterrows():
-            
-            # Basic categorization based on subject
             subject = str(row.get('ticket_sub_name', '')).lower()
-            
             if any(word in subject for word in ['api', 'integration', 'sdk']):
                 category = 'SDK Integration'
                 sdk_issues = ['API Integration Issues']
@@ -224,7 +184,6 @@ Return ONLY the JSON array. No markdown formatting, no explanations, just valid 
                 category = 'General Support'
                 sdk_issues = ['General SDK Questions']
                 priority = 5
-            
             result = {
                 'ticket_id': str(row.get('ticket_id', f'fallback_{idx}')),
                 'ticket_category': category,
@@ -235,7 +194,5 @@ Return ONLY the JSON array. No markdown formatting, no explanations, just valid 
                 'customer_satisfaction': 3,
                 'sdk_impact': 'Medium'
             }
-            
             results.append(result)
-        
         return results
