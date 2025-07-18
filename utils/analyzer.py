@@ -11,6 +11,7 @@ class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
         self.api_key = api_key
         self.model = None
+        self.analysis_count = 0
         
         # Try to configure API key
         if not self._configure_api_key():
@@ -117,16 +118,34 @@ class GeminiTicketAnalyzer:
             raise ValueError(f"Invalid API key: {e}")
     
     def analyze_batch(self, batch_df: pd.DataFrame) -> List[Dict]:
-        """Analyze a batch of tickets with focus on SDK improvements"""
+        """Analyze a batch of tickets with focus on SDK improvements and debug info"""
+        
+        # Debug info
+        st.info(f"🤖 Starting AI analysis of {len(batch_df)} tickets...")
         
         # Limit batch size to avoid token limits
         processing_df = batch_df.head(10)  # Process 10 tickets at a time
         
+        if len(batch_df) > 10:
+            st.warning(f"⚠️ Limiting batch to 10 tickets (from {len(batch_df)}) to avoid API limits")
+        
         try:
+            # Show what we're analyzing
+            with st.expander("🔍 Tickets Being Analyzed"):
+                for idx, row in processing_df.iterrows():
+                    ticket_id = row.get('ticket_id', row.get('Ticket_ID', f'row_{idx}'))
+                    subject = str(row.get('ticket_sub_name', row.get('Ticket subject', 'No subject')))[:50]
+                    st.text(f"• {ticket_id}: {subject}...")
+            
             # Create focused prompt for SDK analysis
+            st.info("📝 Generating AI analysis prompt...")
             prompt = self._create_sdk_focused_prompt(processing_df)
             
+            # Show prompt length for debugging
+            st.info(f"📊 Prompt length: {len(prompt)} characters")
+            
             # Call Gemini API with updated configuration
+            st.info("🚀 Calling Gemini API...")
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.GenerationConfig(
@@ -137,14 +156,23 @@ class GeminiTicketAnalyzer:
                 )
             )
             
+            st.success("✅ Gemini API call completed")
+            
             # Parse response
+            st.info("📋 Parsing AI response...")
             analysis_results = self._parse_gemini_response(response.text, processing_df)
+            
+            # Debug: Show analysis results count
+            st.success(f"🎉 Successfully analyzed {len(analysis_results)} tickets")
+            
+            # Update counter
+            self.analysis_count += len(analysis_results)
             
             return analysis_results
             
         except Exception as e:
             st.warning(f"⚠️ Gemini API Error: {e}")
-            st.info("Using fallback analysis...")
+            st.info("🔄 Using fallback analysis...")
             # Return fallback analysis
             return self._create_fallback_analysis(processing_df)
     
@@ -215,7 +243,13 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
         return prompt
     
     def _parse_gemini_response(self, response_text: str, df: pd.DataFrame) -> List[Dict]:
-        """Parse and validate Gemini's JSON response"""
+        """Parse and validate Gemini's JSON response with debug info"""
+        
+        st.info(f"📄 Response length: {len(response_text)} characters")
+        
+        # Show first 200 chars of response for debugging
+        with st.expander("🔍 AI Response Preview"):
+            st.text(response_text[:500] + "..." if len(response_text) > 500 else response_text)
         
         try:
             # Clean the response text
@@ -227,11 +261,13 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
                 end = response_text.find('```', start)
                 if end != -1:
                     response_text = response_text[start:end].strip()
+                    st.info("🧹 Removed JSON markdown formatting")
             elif '```' in response_text:
                 start = response_text.find('```') + 3
                 end = response_text.find('```', start)
                 if end != -1:
                     response_text = response_text[start:end].strip()
+                    st.info("🧹 Removed generic markdown formatting")
             
             # Find JSON array bounds
             start_idx = response_text.find('[')
@@ -239,7 +275,10 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
             
             if start_idx != -1 and end_idx > start_idx:
                 json_content = response_text[start_idx:end_idx]
+                st.info(f"📋 Extracted JSON content: {len(json_content)} characters")
+                
                 results = json.loads(json_content)
+                st.success(f"✅ Successfully parsed JSON with {len(results)} items")
                 
                 # Validate results
                 if isinstance(results, list):
@@ -254,6 +293,7 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
                         validated_result = self._validate_analysis_result(result)
                         validated_results.append(validated_result)
                     
+                    st.success(f"✅ Validated {len(validated_results)} analysis results")
                     return validated_results
             
             # If parsing fails, create fallback
@@ -311,6 +351,8 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
     
     def _create_fallback_analysis(self, df: pd.DataFrame) -> List[Dict]:
         """Create basic analysis when Gemini fails"""
+        
+        st.info(f"🔄 Creating fallback analysis for {len(df)} tickets")
         
         results = []
         for idx, row in df.iterrows():
@@ -375,4 +417,5 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
             
             results.append(result)
         
+        st.success(f"✅ Created {len(results)} fallback analysis results")
         return results
