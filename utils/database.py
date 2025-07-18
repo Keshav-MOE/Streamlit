@@ -49,8 +49,10 @@ class TicketDB:
             conn.execute(text(create_summary_table))
             conn.commit()
 
-    def clear_all_data(self):
+   def clear_database():
     """Clear all data from the database"""
+    # Function body goes here
+    pass  # Replace with actual logic
     try:
         with self.engine.connect() as conn:
             # Clear ticket analysis data
