@@ -1,143 +1,136 @@
 import pandas as pd
 import streamlit as st
-import re  # Add this import for regex parsing
+import re
 
 class DataProcessor:
     def __init__(self):
         pass
-    
+
     def merge_ticket_data(self, details_df: pd.DataFrame, comments_df: pd.DataFrame) -> pd.DataFrame:
-    # """Merge ticket details with comments/conversations"""
-    
-    # Try different common column names for joining (updated for your data)
-    possible_join_keys = [
-        'Ticket_ID',        # Your actual column name
-        'ticket_id', 
-        'Ticket ID', 
-        'TicketID',
-        'id', 
-        'ID',
-        'ticket_number',
-    ]
-    
-    join_key = None
-    for key in possible_join_keys:
-        if key in details_df.columns and key in comments_df.columns:
-            join_key = key
-            break
-    
-    if not join_key:
-        st.error(f"""
-        **Cannot merge files - no common ID column found!**
-        
-        Details file columns: {list(details_df.columns)}
-        Comments file columns: {list(comments_df.columns)}
-        
-        Expected: 'Ticket_ID' in both files
-        """)
-        raise ValueError("No common join key found between the two files")
-    
-    st.info(f"✅ Merging files using column: **{join_key}**")
-    
-    # Perform the merge
-    try:
-        merged_df = pd.merge(
-            details_df, 
-            comments_df, 
-            on=join_key, 
-            how='left'
-        )
-        
-        # Clean up column names for your specific data
-        merged_df = self._standardize_columns_for_your_data(merged_df)
-        
-        st.success(f"✅ Successfully merged {len(merged_df)} records")
-        
-        return merged_df
-        
-    except Exception as e:
-        st.error(f"Error during merge: {e}")
-        raise
+        # """Merge ticket details with comments/conversations"""
 
-def _standardize_columns_for_your_data(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Standardize column names for your specific data structure"""
-    
-    # Create column mapping for your exact column names
-    column_mapping = {
-        'Ticket_ID': 'ticket_id',
-        'Ticket subject': 'ticket_sub_name',
-        'Full Resolution Time': 'resolution_time',
-        'Comments': 'ticket_conversation',
-        'Call Happened for the Customer?': 'did_call_happened',
-        'Customer Tier ': 'customer_tier',
-        'SDK': 'sdk_name',
-        'SDK Issue Types': 'sdk_issue_category',
-        'Ticket organization name': 'organization_name'
-    }
-    
-    # Apply mapping only for columns that exist
-    existing_mapping = {old: new for old, new in column_mapping.items() if old in df.columns}
-    
-    if existing_mapping:
-        df = df.rename(columns=existing_mapping)
-        st.info(f"🔄 Standardized columns: {existing_mapping}")
-    
-    # Handle resolution time - convert to hours if needed
-    if 'resolution_time' in df.columns:
-        df = self._convert_resolution_time(df)
-    
-    return df
+        possible_join_keys = [
+            'Ticket_ID', 'ticket_id', 'Ticket ID', 'TicketID',
+            'id', 'ID', 'ticket_number',
+        ]
 
-def _convert_resolution_time(self, df: pd.DataFrame) -> pd.DataFrame:
-    """Convert resolution time to hours"""
-    
-    def parse_resolution_time(time_str):
-        """Parse various time formats to hours"""
-        if pd.isna(time_str) or time_str == '':
-            return 0.0
-        
-        time_str = str(time_str).lower().strip()
-        
+        join_key = None
+        for key in possible_join_keys:
+            if key in details_df.columns and key in comments_df.columns:
+                join_key = key
+                break
+
+        if not join_key:
+            st.error(f"""
+            **Cannot merge files - no common ID column found!**
+
+            Details file columns: {list(details_df.columns)}
+            Comments file columns: {list(comments_df.columns)}
+
+            Expected: A common ticket ID column in both files.
+            """)
+            raise ValueError("No common join key found between the two files")
+
+        st.info(f"✅ Merging files using column: **{join_key}**")
+
         try:
-            # If already a number, assume it's hours
-            if time_str.replace('.', '').replace('-', '').replace('+', '').isdigit():
-                return float(time_str)
-            
-            # Parse formats like "2 days 3 hours", "5h 30m", etc.
-            hours = 0.0
-            
-            # Days
-            if 'day' in time_str:
+            merged_df = pd.merge(
+                details_df,
+                comments_df,
+                on=join_key,
+                how='left'
+            )
+
+            # Clean up column names for your specific data
+            merged_df = self._standardize_columns_for_your_data(merged_df)
+
+            st.success(f"✅ Successfully merged {len(merged_df)} records")
+            return merged_df
+
+        except Exception as e:
+            st.error(f"Error during merge: {e}")
+            raise
+
+    # CORRECTED: Indented this method to be part of the DataProcessor class
+    def _standardize_columns_for_your_data(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Standardize column names for your specific data structure"""
+        
+        column_mapping = {
+            'Ticket_ID': 'ticket_id',
+            'Ticket subject': 'ticket_sub_name',
+            'Full Resolution Time': 'resolution_time',
+            'Comments': 'ticket_conversation',
+            'Call Happened for the Customer?': 'did_call_happened',
+            'Customer Tier ': 'customer_tier', # Note the trailing space in the original key
+            'SDK': 'sdk_name',
+            'SDK Issue Types': 'sdk_issue_category',
+            'Ticket organization name': 'organization_name'
+        }
+
+        # Apply mapping only for columns that exist
+        existing_mapping = {old: new for old, new in column_mapping.items() if old in df.columns}
+
+        if existing_mapping:
+            df = df.rename(columns=existing_mapping)
+            st.info(f"🔄 Standardized columns: {existing_mapping}")
+
+        # Handle resolution time - convert to hours if needed
+        if 'resolution_time' in df.columns:
+            df = self._convert_resolution_time(df)
+
+        return df
+
+    # CORRECTED: Indented this method to be part of the DataProcessor class
+    def _convert_resolution_time(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert resolution time string to a numerical value in hours."""
+
+        def parse_resolution_time(time_str):
+            """Parse various time formats to hours"""
+            if pd.isna(time_str) or time_str == '':
+                return 0.0
+
+            time_str = str(time_str).lower().strip()
+
+            try:
+                # If already a number, assume it's hours
+                # CORRECTED: More robust check for float/integer strings
+                if time_str.replace('.', '', 1).replace('-', '', 1).isdigit():
+                    return float(time_str)
+                
+                hours = 0.0
+
+                # CORRECTED: Regex patterns now use word boundaries (\b) to avoid matching
+                # letters within other words. The explicit `if 'unit' in time_str` checks
+                # have been removed as they were unreliable.
+
+                # Days
                 days_match = re.search(r'(\d+\.?\d*)\s*day', time_str)
                 if days_match:
                     hours += float(days_match.group(1)) * 24
-            
-            # Hours
-            if 'hour' in time_str or 'hr' in time_str or 'h' in time_str:
-                hours_match = re.search(r'(\d+\.?\d*)\s*(?:hour|hr|h)', time_str)
+
+                # Hours
+                hours_match = re.search(r'(\d+\.?\d*)\s*(?:hour|hr|h\b)', time_str)
                 if hours_match:
                     hours += float(hours_match.group(1))
-            
-            # Minutes
-            if 'min' in time_str or 'm' in time_str:
-                minutes_match = re.search(r'(\d+\.?\d*)\s*(?:min|m)', time_str)
+
+                # Minutes
+                minutes_match = re.search(r'(\d+\.?\d*)\s*(?:min|m\b)', time_str)
                 if minutes_match:
                     hours += float(minutes_match.group(1)) / 60
+                
+                return hours if hours > 0 else 0.0
             
-            return hours if hours > 0 else 0.0
-            
-        except Exception:
-            return 0.0
-    
-    # Apply conversion
-    df['resolution_time_hours'] = df['resolution_time'].apply(parse_resolution_time)
-    
-    return df
-    
+            except Exception:
+                # Return 0.0 if any parsing error occurs
+                return 0.0
+
+        df['resolution_time_hours'] = df['resolution_time'].apply(parse_resolution_time)
+        return df
+
+    # CORRECTED: Indented this method to be part of the DataProcessor class
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Standardize column names for consistent processing"""
+        """Standardize column names for consistent processing (generic version)"""
         
-        # Create column mapping
         column_mapping = {}
         
         for col in df.columns:
@@ -148,60 +141,73 @@ def _convert_resolution_time(self, df: pd.DataFrame) -> pd.DataFrame:
                 if 'ticket_id' not in column_mapping.values():
                     column_mapping[col] = 'ticket_id'
             
-            elif any(x in col_lower for x in ['subject', 'title', 'sub_name', 'ticket_sub_name']):
+            elif any(x in col_lower for x in ['subject', 'title', 'sub_name']):
                 if 'ticket_sub_name' not in column_mapping.values():
                     column_mapping[col] = 'ticket_sub_name'
             
-            elif any(x in col_lower for x in ['resolution_time', 'resolution time', 'time_to_resolve']):
+            elif any(x in col_lower for x in ['resolution_time', 'time_to_resolve']):
                 if 'resolution_time' not in column_mapping.values():
                     column_mapping[col] = 'resolution_time'
             
-            elif any(x in col_lower for x in ['conversation', 'comments', 'description', 'ticket_conversation']):
+            elif any(x in col_lower for x in ['conversation', 'comments', 'description']):
                 if 'ticket_conversation' not in column_mapping.values():
                     column_mapping[col] = 'ticket_conversation'
             
-            elif any(x in col_lower for x in ['call', 'phone', 'did_call', 'customer_call']):
+            elif any(x in col_lower for x in ['call', 'phone', 'did_call']):
                 if 'did_call_happened' not in column_mapping.values():
                     column_mapping[col] = 'did_call_happened'
             
             elif any(x in col_lower for x in ['category', 'type', 'issue_type']):
                 if 'category' not in column_mapping.values():
                     column_mapping[col] = 'category'
-        
-        # Apply mapping
+
         if column_mapping:
             df = df.rename(columns=column_mapping)
             st.info(f"Standardized columns: {dict(column_mapping)}")
         
         return df
-    
+
+    # CORRECTED: Indented this method to be part of the DataProcessor class
     def validate_data_quality(self, df: pd.DataFrame) -> dict:
         """Validate data quality and return quality metrics"""
         
         quality_report = {
             'total_records': len(df),
-            'missing_ticket_ids': df['ticket_id'].isna().sum() if 'ticket_id' in df.columns else 0,
-            'missing_subjects': df['ticket_sub_name'].isna().sum() if 'ticket_sub_name' in df.columns else 0,
-            'missing_conversations': df['ticket_conversation'].isna().sum() if 'ticket_conversation' in df.columns else 0,
-            'duplicate_tickets': df.duplicated(subset=['ticket_id']).sum() if 'ticket_id' in df.columns else 0,
+            'missing_ticket_ids': 0,
+            'missing_subjects': 0,
+            'missing_conversations': 0,
+            'duplicate_tickets': 0,
             'empty_conversations': 0,
             'data_quality_score': 0
         }
-        
-        # Check for empty conversations
+
+        # Check for missing and duplicate values in key columns if they exist
+        if 'ticket_id' in df.columns:
+            quality_report['missing_ticket_ids'] = df['ticket_id'].isna().sum()
+            quality_report['duplicate_tickets'] = df.duplicated(subset=['ticket_id']).sum()
+
+        if 'ticket_sub_name' in df.columns:
+            quality_report['missing_subjects'] = df['ticket_sub_name'].isna().sum()
+
         if 'ticket_conversation' in df.columns:
+            quality_report['missing_conversations'] = df['ticket_conversation'].isna().sum()
             quality_report['empty_conversations'] = (
                 df['ticket_conversation'].fillna('').str.strip().eq('').sum()
             )
-        
+
         # Calculate quality score (0-100)
-        total_fields = len(df) * 3  # ticket_id, subject, conversation
-        missing_fields = (
-            quality_report['missing_ticket_ids'] + 
-            quality_report['missing_subjects'] + 
-            quality_report['missing_conversations']
-        )
-        
-        quality_report['data_quality_score'] = max(0, 100 - (missing_fields / total_fields * 100))
+        total_records = quality_report['total_records']
+        if total_records > 0:
+            total_fields = total_records * 3  # Based on id, subject, conversation
+            missing_fields = (
+                quality_report['missing_ticket_ids'] +
+                quality_report['missing_subjects'] +
+                quality_report['missing_conversations']
+            )
+            
+            # Ensure total_fields is not zero to avoid division by zero
+            if total_fields > 0:
+                quality_percentage = (missing_fields / total_fields) * 100
+                quality_report['data_quality_score'] = max(0, 100 - quality_percentage)
         
         return quality_report
