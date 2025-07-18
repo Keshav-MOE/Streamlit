@@ -5,14 +5,14 @@ import plotly.graph_objects as go
 from utils.analyzer import GeminiTicketAnalyzer
 from utils.database import TicketDB
 from utils.data_processor import DataProcessor
+from sqlalchemy import create_engine, text
 import json
 import os
 import time
-from sqlalchemy import create_engine, text  # ← Make sure 'text' is imported
 
 # Page config - MUST be first Streamlit command
 st.set_page_config(
-    page_title="Ticket Analytics Dashboard", 
+    page_title="Ticket Analytics Dashboard",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -87,7 +87,7 @@ st.markdown("""
 
 def main():
     # Header
-    st.markdown('<h1 class="main-header">🎫 Support Ticket Analytics Dashboard</h1>', 
+    st.markdown('<h1 class="main-header">🎫 Support Ticket Analytics Dashboard</h1>',
                 unsafe_allow_html=True)
     
     # Initialize session state
@@ -126,7 +126,7 @@ def initialize_session_state():
             st.session_state.api_configured = False
     
     # Analyzer initialization
-    if ('analyzer_initialized' not in st.session_state and 
+    if ('analyzer_initialized' not in st.session_state and
         st.session_state.get('api_configured', False)):
         try:
             st.session_state.analyzer = GeminiTicketAnalyzer(
@@ -146,7 +146,6 @@ def test_api_key_validity():
     try:
         import google.generativeai as genai
         genai.configure(api_key=st.session_state.gemini_api_key)
-        # Simple test - just configure, don't call API yet
         return True
     except Exception:
         st.session_state.api_configured = False
@@ -267,85 +266,6 @@ def show_home_page():
         except Exception as e:
             st.info("Upload and analyze some tickets to see recent activity here.")
 
-def clear_database():
-    """Clear all data from the database with proper error handling"""
-    
-    try:
-        with st.spinner("🗑️ Clearing database..."):
-            # Show what will be deleted
-            if st.session_state.get('db_initialized'):
-                try:
-                    counts = st.session_state.db.get_table_counts()
-                    st.info(f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries...")
-                except:
-                    st.info("Preparing to clear all database records...")
-            
-            # Clear the database using the database class method
-            success = st.session_state.db.clear_all_data()
-            
-            if success:
-                # Try to optimize database
-                st.session_state.db.vacuum_database()
-                
-                st.success("✅ Database cleared successfully!")
-                st.info("🔄 All ticket analysis data has been permanently deleted.")
-                
-                # Reset confirmation step
-                st.session_state.clear_db_confirm_step = 0
-                
-                # Show success with balloons
-                st.balloons()
-                
-                # Brief pause then refresh
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Failed to clear database. Please try again.")
-                st.session_state.clear_db_confirm_step = 0
-            
-    except Exception as e:
-        st.error(f"❌ Unexpected error: {e}")
-        st.session_state.clear_db_confirm_step = 0
-
-def clear_all_database_tables():
-    """Helper function to clear all database tables"""
-    
-    try:
-        if not st.session_state.get('db_initialized'):
-            return False
-        
-        db = st.session_state.db
-        
-        with db.engine.connect() as conn:
-            # Delete all records from both tables
-            conn.execute(text("DELETE FROM ticket_analysis"))
-            conn.execute(text("DELETE FROM monthly_summary"))
-            
-            # Reset auto-increment counters (SQLite specific)
-            try:
-                conn.execute(text("DELETE FROM sqlite_sequence WHERE name='ticket_analysis'"))
-                conn.execute(text("DELETE FROM sqlite_sequence WHERE name='monthly_summary'"))
-            except:
-                pass  # Ignore if sqlite_sequence doesn't exist
-            
-            # Commit all changes
-            conn.commit()
-            
-            # Vacuum to reclaim space - do this in a separate connection
-            try:
-                conn.execute(text("VACUUM"))
-            except:
-                pass  # Vacuum might not work in some SQLite configurations
-        
-        return True
-        
-    except Exception as e:
-        st.error(f"Database clear operation failed: {e}")
-        return False
-
-# Don't forget to add the text import from sqlalchemy at the top
-# from sqlalchemy import create_engine, text  # Make sure 'text' is imported
-
 def show_sidebar():
     """Show sidebar content"""
     
@@ -380,14 +300,11 @@ def show_sidebar():
                         if api_key_input.strip():
                             if api_key_input.startswith('AIza'):
                                 try:
-                                    # Test the API key immediately
                                     import google.generativeai as genai
                                     genai.configure(api_key=api_key_input.strip())
                                     
-                                    # Try to create analyzer
                                     test_analyzer = GeminiTicketAnalyzer(api_key=api_key_input.strip())
                                     
-                                    # If we get here, the API key works
                                     st.session_state.gemini_api_key = api_key_input.strip()
                                     st.session_state.api_configured = True
                                     st.session_state.analyzer = test_analyzer
@@ -418,7 +335,6 @@ def show_sidebar():
         else:
             st.success("✅ API Key Configured")
             
-            # Show masked API key
             if hasattr(st.session_state, 'gemini_api_key'):
                 masked_key = st.session_state.gemini_api_key[:12] + "..." if len(st.session_state.gemini_api_key) > 12 else "***"
                 st.code(f"Key: {masked_key}")
@@ -545,14 +461,24 @@ def show_sidebar():
                                             pass  # Vacuum is optional
                                         
                                         st.success("🎉 All data has been permanently deleted!")
+                                        st.info("📊 All counters will update after refresh")
                                         st.balloons()
+                                        
+                                        # Manual refresh button
+                                        st.markdown("---")
+                                        if st.button("🔄 Refresh Dashboard", use_container_width=True, type="primary"):
+                                            # Clear all session state except API key
+                                            keys_to_keep = ['gemini_api_key', 'api_configured', 'analyzer', 'analyzer_initialized']
+                                            keys_to_delete = [key for key in st.session_state.keys() if key not in keys_to_keep]
+                                            
+                                            for key in keys_to_delete:
+                                                del st.session_state[key]
+                                            
+                                            st.rerun()
                                         
                                         # Reset confirmation
                                         st.session_state.clear_db_confirm_step = 0
                                         
-                                        # Refresh after brief pause
-                                        time.sleep(2)
-                                        st.rerun()
                                     else:
                                         st.error("❌ Failed to clear database")
                                         st.session_state.clear_db_confirm_step = 0
@@ -592,43 +518,6 @@ def show_sidebar():
                     st.text(f"DB Size: {db_size}")
                 except:
                     st.text("DB Size: Unknown")
-            st.session_state.clear_db_confirm_step = 0
-
-
-def clear_database():
-    """Clear all data from the database"""
-    
-    try:
-        with st.spinner("🗑️ Clearing database..."):
-            # Get database instance
-            db = st.session_state.db
-            
-            # Clear all tables
-            with db.engine.connect() as conn:
-                # Delete all ticket analysis data
-                conn.execute(db.engine.execute("DELETE FROM ticket_analysis"))
-                
-                # Delete all monthly summaries
-                conn.execute(db.engine.execute("DELETE FROM monthly_summary"))
-                
-                # Commit the changes
-                conn.commit()
-            
-            st.success("✅ Database cleared successfully!")
-            
-            # Reset confirmation step
-            st.session_state.clear_db_confirm_step = 0
-            
-            # Show success message with balloons
-            st.balloons()
-            
-            # Auto-refresh after a moment
-            time.sleep(2)
-            st.rerun()
-            
-    except Exception as e:
-        st.error(f"❌ Error clearing database: {e}")
-        st.session_state.clear_db_confirm_step = 0
 
 if __name__ == "__main__":
     main()
