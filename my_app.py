@@ -55,11 +55,14 @@ st.markdown("""
         background-color: #f8d7da;
         color: #721c24;
     }
-    .sidebar-section {
-        background-color: #f8f9fa;
+    .debug-box {
+        background-color: #fff3cd;
         padding: 1rem;
         border-radius: 10px;
+        border-left: 4px solid #ffc107;
         margin: 1rem 0;
+        font-family: monospace;
+        font-size: 0.9rem;
     }
     .api-key-box {
         background-color: #e3f2fd;
@@ -107,6 +110,7 @@ def initialize_session_state():
         try:
             st.session_state.db = TicketDB()
             st.session_state.db_initialized = True
+            st.session_state.db_last_refresh = time.time()
         except Exception as e:
             st.session_state.db_initialized = False
             st.session_state.db_error = str(e)
@@ -197,18 +201,22 @@ def show_home_page():
     with col3:
         if st.session_state.get('db_initialized'):
             try:
+                # Force refresh ticket count every time
                 total_tickets = st.session_state.db.get_total_tickets()
+                
                 st.markdown(f"""
                 <div class="metric-card">
                     <h4>Total Tickets Analyzed</h4>
                     <h2 style="color: #1f77b4; margin: 0;">{total_tickets:,}</h2>
+                    <small>Last updated: {time.strftime('%H:%M:%S')}</small>
                 </div>
                 """, unsafe_allow_html=True)
-            except:
+            except Exception as e:
                 st.markdown(f"""
                 <div class="metric-card">
                     <h4>Total Tickets Analyzed</h4>
-                    <h2 style="color: #1f77b4; margin: 0;">0</h2>
+                    <h2 style="color: #d62728; margin: 0;">Error</h2>
+                    <small>Error: {str(e)[:50]}</small>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -216,29 +224,51 @@ def show_home_page():
             <div class="metric-card">
                 <h4>Total Tickets Analyzed</h4>
                 <h2 style="color: #1f77b4; margin: 0;">0</h2>
+                <small>Database not connected</small>
             </div>
             """, unsafe_allow_html=True)
     
-    # Quick Actions
-    st.markdown("### ⚡ Quick Actions")
-    
+    # Manual refresh button
+    st.markdown("### 🔄 Data Management")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        if st.button("📊 Refresh Data", use_container_width=True):
+            # Clear any cached data
+            keys_to_clear = ['cached_stats', 'recent_data', 'dashboard_data']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.db_last_refresh = time.time()
+            st.rerun()
+    
+    with col2:
         if st.button("📁 Upload New Data", use_container_width=True):
             st.switch_page("pages/1_📁_Upload_Data.py")
     
-    with col2:
+    with col3:
         if st.button("📊 View Dashboard", use_container_width=True):
             st.switch_page("pages/2_📊_Dashboard.py")
     
-    with col3:
+    with col4:
         if st.button("🛠️ SDK Insights", use_container_width=True):
             st.switch_page("pages/3_🛠️_SDK_Insights.py")
     
-    with col4:
-        if st.button("📈 View Trends", use_container_width=True):
-            st.switch_page("pages/4_📈_Trends.py")
+    # Debug information
+    if st.session_state.get('db_initialized'):
+        with st.expander("🔍 Debug Information"):
+            debug_info = st.session_state.db.debug_database_contents()
+            st.markdown(f"""
+            <div class="debug-box">
+                <strong>Database Debug Info:</strong><br>
+                {chr(10).join(debug_info)}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Show last refresh time
+            if 'db_last_refresh' in st.session_state:
+                refresh_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(st.session_state.db_last_refresh))
+                st.info(f"Last data refresh: {refresh_time}")
     
     # Show API configuration notice if not configured
     if not st.session_state.get('api_configured', False):
@@ -264,7 +294,7 @@ def show_home_page():
             else:
                 st.info("No recent activity. Upload some data to get started!")
         except Exception as e:
-            st.info("Upload and analyze some tickets to see recent activity here.")
+            st.warning(f"Could not load recent activity: {e}")
 
 def show_sidebar():
     """Show sidebar content"""
@@ -360,11 +390,12 @@ def show_sidebar():
         
         st.divider()
         
-        # Quick Stats
-        st.markdown("### 📊 Quick Stats")
+        # Quick Stats with live refresh
+        st.markdown("### 📊 Live Stats")
         
         if st.session_state.get('db_initialized'):
             try:
+                # Force fresh data every time
                 stats = st.session_state.db.get_quick_stats()
                 
                 st.metric("Total Months", stats.get('total_months', 0))
@@ -376,8 +407,11 @@ def show_sidebar():
                     top_cat = top_cat[:15] + "..."
                 st.metric("Top Category", top_cat)
                 
+                # Real-time updates
+                st.caption(f"Updated: {time.strftime('%H:%M:%S')}")
+                
             except Exception as e:
-                st.info("Stats will appear after processing tickets")
+                st.error(f"Stats error: {str(e)}")
         else:
             st.info("Database not initialized")
         
@@ -395,7 +429,7 @@ def show_sidebar():
                 st.metric("Total Records", total_records)
                 
             except Exception as e:
-                st.info("Database info unavailable")
+                st.warning(f"Database info error: {e}")
         
         # Clear Database Section - DANGER ZONE
         with st.expander("⚠️ Danger Zone", expanded=False):
@@ -442,48 +476,29 @@ def show_sidebar():
                     if st.button("💥 YES, DELETE ALL", type="primary", use_container_width=True):
                         try:
                             with st.spinner("🗑️ Clearing database..."):
-                                # Show current counts before deletion
-                                try:
-                                    counts = st.session_state.db.get_table_counts()
-                                    st.info(f"Deleting {counts['tickets']} tickets and {counts['summaries']} summaries...")
-                                except:
-                                    pass
+                                success = st.session_state.db.clear_all_data()
                                 
-                                # Clear the database
-                                if st.session_state.get('db_initialized'):
-                                    success = st.session_state.db.clear_all_data()
+                                if success:
+                                    st.session_state.db.vacuum_database()
                                     
-                                    if success:
-                                        # Try to optimize database
-                                        try:
-                                            st.session_state.db.vacuum_database()
-                                        except:
-                                            pass  # Vacuum is optional
+                                    st.success("🎉 All data has been permanently deleted!")
+                                    st.balloons()
+                                    
+                                    # Manual refresh button
+                                    st.markdown("---")
+                                    if st.button("🔄 Refresh Dashboard", use_container_width=True, type="primary"):
+                                        # Clear all session state except API key
+                                        keys_to_keep = ['gemini_api_key', 'api_configured', 'analyzer', 'analyzer_initialized']
+                                        keys_to_delete = [key for key in st.session_state.keys() if key not in keys_to_keep]
                                         
-                                        st.success("🎉 All data has been permanently deleted!")
-                                        st.info("📊 All counters will update after refresh")
-                                        st.balloons()
+                                        for key in keys_to_delete:
+                                            del st.session_state[key]
                                         
-                                        # Manual refresh button
-                                        st.markdown("---")
-                                        if st.button("🔄 Refresh Dashboard", use_container_width=True, type="primary"):
-                                            # Clear all session state except API key
-                                            keys_to_keep = ['gemini_api_key', 'api_configured', 'analyzer', 'analyzer_initialized']
-                                            keys_to_delete = [key for key in st.session_state.keys() if key not in keys_to_keep]
-                                            
-                                            for key in keys_to_delete:
-                                                del st.session_state[key]
-                                            
-                                            st.rerun()
-                                        
-                                        # Reset confirmation
-                                        st.session_state.clear_db_confirm_step = 0
-                                        
-                                    else:
-                                        st.error("❌ Failed to clear database")
-                                        st.session_state.clear_db_confirm_step = 0
+                                        st.rerun()
+                                    
+                                    st.session_state.clear_db_confirm_step = 0
                                 else:
-                                    st.error("❌ Database not initialized")
+                                    st.error("❌ Failed to clear database")
                                     st.session_state.clear_db_confirm_step = 0
                                         
                         except Exception as e:
