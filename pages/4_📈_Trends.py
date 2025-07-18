@@ -1,4 +1,13 @@
-import streamlit as st
+# At the top of pages/4_📈_Trends.py, replace:
+import scipy.stats as stats
+
+# With:
+try:
+    import scipy.stats as stats
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    st.warning("⚠️ Scipy not available - some advanced forecasting features disabled")
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
