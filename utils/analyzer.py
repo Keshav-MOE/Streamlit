@@ -16,7 +16,7 @@ class GeminiTicketAnalyzer:
             except:
                 raise ValueError("Gemini API key not found")
         
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
         
         # SDK-focused analysis criteria
         self.sdk_focus_areas = [
