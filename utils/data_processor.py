@@ -7,56 +7,132 @@ class DataProcessor:
         pass
     
     def merge_ticket_data(self, details_df: pd.DataFrame, comments_df: pd.DataFrame) -> pd.DataFrame:
-        """Merge ticket details with comments/conversations"""
+    """Merge ticket details with comments/conversations"""
+    
+    # Try different common column names for joining (updated for your data)
+    possible_join_keys = [
+        'Ticket_ID',        # Your actual column name
+        'ticket_id', 
+        'Ticket ID', 
+        'TicketID',
+        'id', 
+        'ID',
+        'ticket_number',
+    ]
+    
+    join_key = None
+    for key in possible_join_keys:
+        if key in details_df.columns and key in comments_df.columns:
+            join_key = key
+            break
+    
+    if not join_key:
+        st.error(f"""
+        **Cannot merge files - no common ID column found!**
         
-        # Try different common column names for joining
-        possible_join_keys = [
-            'ticket_id', 
-            'Ticket ID', 
-            'id', 
-            'ID',
-            'ticket_number',
-            'TicketID'
-        ]
+        Details file columns: {list(details_df.columns)}
+        Comments file columns: {list(comments_df.columns)}
         
-        join_key = None
-        for key in possible_join_keys:
-            if key in details_df.columns and key in comments_df.columns:
-                join_key = key
-                break
+        Expected: 'Ticket_ID' in both files
+        """)
+        raise ValueError("No common join key found between the two files")
+    
+    st.info(f"✅ Merging files using column: **{join_key}**")
+    
+    # Perform the merge
+    try:
+        merged_df = pd.merge(
+            details_df, 
+            comments_df, 
+            on=join_key, 
+            how='left'
+        )
         
-        if not join_key:
-            st.error(f"""
-            **Cannot merge files - no common ID column found!**
-            
-            Details file columns: {list(details_df.columns)}
-            Comments file columns: {list(comments_df.columns)}
-            
-            Please ensure both files have a common column like 'ticket_id', 'ID', etc.
-            """)
-            raise ValueError("No common join key found between the two files")
+        # Clean up column names for your specific data
+        merged_df = self._standardize_columns_for_your_data(merged_df)
         
-        st.info(f"Merging files using column: **{join_key}**")
+        st.success(f"✅ Successfully merged {len(merged_df)} records")
         
-        # Perform the merge
+        return merged_df
+        
+    except Exception as e:
+        st.error(f"Error during merge: {e}")
+        raise
+
+def _standardize_columns_for_your_data(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Standardize column names for your specific data structure"""
+    
+    # Create column mapping for your exact column names
+    column_mapping = {
+        'Ticket_ID': 'ticket_id',
+        'Ticket subject': 'ticket_sub_name',
+        'Full Resolution Time': 'resolution_time',
+        'Comments': 'ticket_conversation',
+        'Call Happened for the Customer?': 'did_call_happened',
+        'Customer Tier ': 'customer_tier',
+        'SDK': 'sdk_name',
+        'SDK Issue Types': 'sdk_issue_category',
+        'Ticket organization name': 'organization_name'
+    }
+    
+    # Apply mapping only for columns that exist
+    existing_mapping = {old: new for old, new in column_mapping.items() if old in df.columns}
+    
+    if existing_mapping:
+        df = df.rename(columns=existing_mapping)
+        st.info(f"🔄 Standardized columns: {existing_mapping}")
+    
+    # Handle resolution time - convert to hours if needed
+    if 'resolution_time' in df.columns:
+        df = self._convert_resolution_time(df)
+    
+    return df
+
+def _convert_resolution_time(self, df: pd.DataFrame) -> pd.DataFrame:
+    """Convert resolution time to hours"""
+    
+    def parse_resolution_time(time_str):
+        """Parse various time formats to hours"""
+        if pd.isna(time_str) or time_str == '':
+            return 0.0
+        
+        time_str = str(time_str).lower().strip()
+        
         try:
-            merged_df = pd.merge(
-                details_df, 
-                comments_df, 
-                on=join_key, 
-                how='left'
-            )
+            # If already a number, assume it's hours
+            if time_str.replace('.', '').replace('-', '').replace('+', '').isdigit():
+                return float(time_str)
             
-            # Clean up column names
-            merged_df = self._standardize_columns(merged_df)
+            # Parse formats like "2 days 3 hours", "5h 30m", etc.
+            hours = 0.0
             
-            st.success(f"✅ Successfully merged {len(merged_df)} records")
+            # Days
+            if 'day' in time_str:
+                days_match = re.search(r'(\d+\.?\d*)\s*day', time_str)
+                if days_match:
+                    hours += float(days_match.group(1)) * 24
             
-            return merged_df
+            # Hours
+            if 'hour' in time_str or 'hr' in time_str or 'h' in time_str:
+                hours_match = re.search(r'(\d+\.?\d*)\s*(?:hour|hr|h)', time_str)
+                if hours_match:
+                    hours += float(hours_match.group(1))
             
-        except Exception as e:
-            st.error(f"Error during merge: {e}")
-            raise
+            # Minutes
+            if 'min' in time_str or 'm' in time_str:
+                minutes_match = re.search(r'(\d+\.?\d*)\s*(?:min|m)', time_str)
+                if minutes_match:
+                    hours += float(minutes_match.group(1)) / 60
+            
+            return hours if hours > 0 else 0.0
+            
+        except Exception:
+            return 0.0
+    
+    # Apply conversion
+    df['resolution_time_hours'] = df['resolution_time'].apply(parse_resolution_time)
+    
+    return df
     
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Standardize column names for consistent processing"""
