@@ -50,72 +50,73 @@ class TicketDB:
             conn.commit()
     
     def clear_all_data(self):
-    """Clear all data from the database"""
-    try:
-        # Method 1: Use direct SQLite connection (most reliable)
-        import sqlite3
-        import os
-        
-        # Close any existing SQLAlchemy connections
-        self.engine.dispose()
-        
-        # Connect directly to SQLite
-        db_path = 'ticket_analysis.db'
-        if os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            
-            # Get counts before deletion (for logging)
-            cursor.execute("SELECT COUNT(*) FROM ticket_analysis")
-            ticket_count = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM monthly_summary") 
-            summary_count = cursor.fetchone()[0]
-            
-            st.info(f"Deleting {ticket_count} tickets and {summary_count} summaries...")
-            
-            # Clear both tables
-            cursor.execute("DELETE FROM ticket_analysis")
-            cursor.execute("DELETE FROM monthly_summary")
-            
-            # Reset auto-increment counters
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('ticket_analysis', 'monthly_summary')")
-            
-            # Commit changes
-            conn.commit()
-            
-            # Verify deletion
-            cursor.execute("SELECT COUNT(*) FROM ticket_analysis")
-            remaining_tickets = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM monthly_summary")
-            remaining_summaries = cursor.fetchone()[0]
-            
-            # Close connection
-            cursor.close()
-            conn.close()
-            
-            # Recreate SQLAlchemy engine
-            self.engine = create_engine('sqlite:///ticket_analysis.db')
-            
-            if remaining_tickets == 0 and remaining_summaries == 0:
-                st.success(f"✅ Successfully deleted {ticket_count} tickets and {summary_count} summaries")
-                return True
-            else:
-                st.error(f"❌ Deletion incomplete. {remaining_tickets} tickets and {remaining_summaries} summaries remain")
-                return False
-        else:
-            st.info("Database file doesn't exist - nothing to clear")
-            return True
-            
-    except Exception as e:
-        st.error(f"Failed to clear database: {e}")
-        # Try to recreate the engine in case it was corrupted
+        """Clear all data from the database"""
         try:
-            self.engine = create_engine('sqlite:///ticket_analysis.db')
-        except:
-            pass
-        return False
+            # Method 1: Use direct SQLite connection (most reliable)
+            import sqlite3
+            import os
+            
+            # Close any existing SQLAlchemy connections
+            self.engine.dispose()
+            
+            # Connect directly to SQLite
+            db_path = 'ticket_analysis.db'
+            
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                # Get counts before deletion (for logging)
+                cursor.execute("SELECT COUNT(*) FROM ticket_analysis")
+                ticket_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM monthly_summary") 
+                summary_count = cursor.fetchone()[0]
+                
+                st.info(f"Deleting {ticket_count} tickets and {summary_count} summaries...")
+                
+                # Clear both tables
+                cursor.execute("DELETE FROM ticket_analysis")
+                cursor.execute("DELETE FROM monthly_summary")
+                
+                # Reset auto-increment counters
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('ticket_analysis', 'monthly_summary')")
+                
+                # Commit changes
+                conn.commit()
+                
+                # Verify deletion
+                cursor.execute("SELECT COUNT(*) FROM ticket_analysis")
+                remaining_tickets = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM monthly_summary")
+                remaining_summaries = cursor.fetchone()[0]
+                
+                # Close connection
+                cursor.close()
+                conn.close()
+                
+                # Recreate SQLAlchemy engine
+                self.engine = create_engine('sqlite:///ticket_analysis.db')
+                
+                if remaining_tickets == 0 and remaining_summaries == 0:
+                    st.success(f"✅ Successfully deleted {ticket_count} tickets and {summary_count} summaries")
+                    return True
+                else:
+                    st.error(f"❌ Deletion incomplete. {remaining_tickets} tickets and {remaining_summaries} summaries remain")
+                    return False
+            else:
+                st.info("Database file doesn't exist - nothing to clear")
+                return True
+                
+        except Exception as e:
+            st.error(f"Failed to clear database: {e}")
+            # Try to recreate the engine in case it was corrupted
+            try:
+                self.engine = create_engine('sqlite:///ticket_analysis.db')
+            except:
+                pass
+            return False
     
     def get_table_counts(self):
         """Get count of records in each table"""
@@ -132,22 +133,22 @@ class TicketDB:
         except Exception as e:
             return {'tickets': 0, 'summaries': 0, 'total': 0}
     
-   def vacuum_database(self):
-    """Optimize database after clearing data"""
-    try:
-        import sqlite3
-        
-        # Use direct connection for VACUUM
-        conn = sqlite3.connect('ticket_analysis.db')
-        conn.execute("VACUUM")
-        conn.close()
-        
-        st.success("🔧 Database optimized")
-        return True
-        
-    except Exception as e:
-        st.warning(f"Database optimization failed: {e}")
-        return False
+    def vacuum_database(self):
+        """Optimize database after clearing data"""
+        try:
+            import sqlite3
+            
+            # Use direct connection for VACUUM
+            conn = sqlite3.connect('ticket_analysis.db')
+            conn.execute("VACUUM")
+            conn.close()
+            
+            st.success("🔧 Database optimized")
+            return True
+            
+        except Exception as e:
+            st.warning(f"Database optimization failed: {e}")
+            return False
     
     def get_analysis_data(self, month=None):
         """Get analysis data with optional month filter - NO CACHING"""
@@ -412,4 +413,18 @@ class TicketDB:
                 count = result.fetchone()[0]
                 return count > 0
         except Exception:
+            return False
+    
+    def verify_empty_database(self):
+        """Verify database is empty - for debugging"""
+        try:
+            with self.engine.connect() as conn:
+                ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
+                summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
+                
+                st.info(f"🔍 Verification: {ticket_count} tickets, {summary_count} summaries in database")
+                return ticket_count == 0 and summary_count == 0
+                
+        except Exception as e:
+            st.error(f"Verification failed: {e}")
             return False
