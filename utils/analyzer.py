@@ -1,3 +1,10 @@
+import google.generativeai as genai
+import pandas as pd  # ← ADD THIS
+import json
+import time
+import streamlit as st
+from typing import List, Dict  # ← ADD THIS
+
 class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
         if api_key:
