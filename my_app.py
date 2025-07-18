@@ -266,6 +266,84 @@ def show_home_page():
         except Exception as e:
             st.info("Upload and analyze some tickets to see recent activity here.")
 
+def clear_database():
+    """Clear all data from the database with proper error handling"""
+    
+    try:
+        with st.spinner("🗑️ Clearing database..."):
+            # Show what will be deleted
+            if st.session_state.get('db_initialized'):
+                try:
+                    with st.session_state.db.engine.connect() as conn:
+                        ticket_count = conn.execute(text("SELECT COUNT(*) FROM ticket_analysis")).fetchone()[0]
+                        summary_count = conn.execute(text("SELECT COUNT(*) FROM monthly_summary")).fetchone()[0]
+                        st.info(f"Deleting {ticket_count} tickets and {summary_count} summaries...")
+                except:
+                    st.info("Preparing to clear all database records...")
+            
+            # Clear the database
+            success = clear_all_database_tables()
+            
+            if success:
+                st.success("✅ Database cleared successfully!")
+                st.info("🔄 All ticket analysis data has been permanently deleted.")
+                
+                # Reset confirmation step
+                st.session_state.clear_db_confirm_step = 0
+                
+                # Show success with balloons
+                st.balloons()
+                
+                # Brief pause then refresh
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("❌ Failed to clear database. Please try again.")
+                st.session_state.clear_db_confirm_step = 0
+            
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {e}")
+        st.session_state.clear_db_confirm_step = 0
+
+def clear_all_database_tables():
+    """Helper function to clear all database tables"""
+    
+    try:
+        if not st.session_state.get('db_initialized'):
+            return False
+        
+        db = st.session_state.db
+        
+        with db.engine.connect() as conn:
+            # Delete all records from both tables
+            conn.execute(text("DELETE FROM ticket_analysis"))
+            conn.execute(text("DELETE FROM monthly_summary"))
+            
+            # Reset auto-increment counters (SQLite specific)
+            try:
+                conn.execute(text("DELETE FROM sqlite_sequence WHERE name='ticket_analysis'"))
+                conn.execute(text("DELETE FROM sqlite_sequence WHERE name='monthly_summary'"))
+            except:
+                pass  # Ignore if sqlite_sequence doesn't exist
+            
+            # Commit all changes
+            conn.commit()
+            
+            # Vacuum to reclaim space
+            try:
+                conn.execute(text("VACUUM"))
+            except:
+                pass  # Vacuum might not work in some SQLite configurations
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Database clear operation failed: {e}")
+        return False
+
+# Don't forget to add the text import from sqlalchemy at the top
+# from sqlalchemy import create_engine, text  # Make sure 'text' is imported
+
 def show_sidebar():
     """Show sidebar content"""
     
