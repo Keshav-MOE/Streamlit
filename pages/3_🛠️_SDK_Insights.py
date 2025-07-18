@@ -5,10 +5,11 @@ import plotly.graph_objects as go
 import json
 import re
 from collections import Counter
-import nltk
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-import io
+# Remove these unused imports:
+# import nltk
+# from wordcloud import WordCloud
+# import matplotlib.pyplot as plt
+# import io
 
 st.set_page_config(
     page_title="SDK Insights",
@@ -16,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS (keep your existing CSS)
 st.markdown("""
 <style>
     .insight-card {
@@ -112,7 +113,7 @@ def show_sdk_overview(df):
     total_sdk_tickets = len([issues for issues in all_sdk_issues if issues])
     unique_issues = len(set([item for sublist in all_sdk_issues for item in sublist]))
     avg_priority_sdk = df[df['sdk_issues'].notna()]['priority_score'].mean() if not df.empty else 0
-    high_impact_issues = len([issues for issues in all_sdk_issues if any('critical' in issue.lower() or 'urgent' in issue.lower() for issue in issues)])
+    high_impact_issues = len([issues for issues in all_sdk_issues if any('critical' in str(issue).lower() or 'urgent' in str(issue).lower() for issue in issues)])
     
     # Display metrics
     col1, col2, col3, col4 = st.columns(4)
@@ -170,31 +171,37 @@ def show_issue_analysis(df):
     
     with col1:
         # Top issues bar chart
-        fig = px.bar(
-            x=list(top_issues.values()),
-            y=list(top_issues.keys()),
-            orientation='h',
-            title="🔥 Top SDK Issues",
-            labels={'x': 'Frequency', 'y': 'Issue Type'},
-            color=list(top_issues.values()),
-            color_continuous_scale='Reds'
-        )
-        fig.update_layout(height=500, yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig, use_container_width=True)
+        if top_issues:
+            fig = px.bar(
+                x=list(top_issues.values()),
+                y=list(top_issues.keys()),
+                orientation='h',
+                title="🔥 Top SDK Issues",
+                labels={'x': 'Frequency', 'y': 'Issue Type'},
+                color=list(top_issues.values()),
+                color_continuous_scale='Reds'
+            )
+            fig.update_layout(height=500, yaxis={'categoryorder': 'total ascending'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No issues data to display")
     
     with col2:
         # Issue categories pie chart
         categorized_issues = categorize_issues(flat_issues)
         
-        fig = px.pie(
-            values=list(categorized_issues.values()),
-            names=list(categorized_issues.keys()),
-            title="📊 Issue Categories",
-            color_discrete_sequence=px.colors.qualitative.Set3
-        )
-        fig.update_traces(textinfo='percent+label')
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        if categorized_issues:
+            fig = px.pie(
+                values=list(categorized_issues.values()),
+                names=list(categorized_issues.keys()),
+                title="📊 Issue Categories",
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            fig.update_traces(textinfo='percent+label')
+            fig.update_layout(height=500)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No categorized issues to display")
     
     # Show issue trends over time
     if df['month'].nunique() > 1:
@@ -218,7 +225,7 @@ def categorize_issues(issues):
     categorized['Other'] = 0
     
     for issue in issues:
-        issue_lower = issue.lower()
+        issue_lower = str(issue).lower()
         matched = False
         
         for category, keywords in categories.items():
@@ -241,6 +248,10 @@ def show_issue_trends(df, issues):
     # Get top 5 issues for trending
     top_issues = Counter(issues).most_common(5)
     
+    if not top_issues:
+        st.info("No trending data available")
+        return
+    
     monthly_trends = {}
     
     for month in df['month'].unique():
@@ -257,18 +268,19 @@ def show_issue_trends(df, issues):
             count = monthly_trends[month].get(issue, 0)
             trend_data.append({'Month': month, 'Issue': issue, 'Count': count})
     
-    trend_df = pd.DataFrame(trend_data)
-    
-    fig = px.line(
-        trend_df,
-        x='Month',
-        y='Count',
-        color='Issue',
-        title='📈 Top Issues Trend',
-        markers=True
-    )
-    fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    if trend_data:
+        trend_df = pd.DataFrame(trend_data)
+        
+        fig = px.line(
+            trend_df,
+            x='Month',
+            y='Count',
+            color='Issue',
+            title='📈 Top Issues Trend',
+            markers=True
+        )
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
 
 def show_improvement_recommendations(df):
     """Show improvement recommendations"""
@@ -299,7 +311,7 @@ def show_improvement_recommendations(df):
             'frequency': count,
             'priority': priority,
             'impact': impact,
-            'percentage': (count / len(df)) * 100
+            'percentage': (count / len(df)) * 100 if len(df) > 0 else 0
         })
     
     # Sort by priority and display
@@ -330,17 +342,18 @@ def show_improvement_recommendations(df):
         for item in categorized_improvements:
             priority_dist[item['priority']] = priority_dist.get(item['priority'], 0) + 1
         
-        fig = px.pie(
-            values=list(priority_dist.values()),
-            names=list(priority_dist.keys()),
-            title="🎯 Priority Distribution",
-            color_discrete_map={
-                'High': '#dc3545',
-                'Medium': '#ffc107', 
-                'Low': '#28a745'
-            }
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if priority_dist:
+            fig = px.pie(
+                values=list(priority_dist.values()),
+                names=list(priority_dist.keys()),
+                title="🎯 Priority Distribution",
+                color_discrete_map={
+                    'High': '#dc3545',
+                    'Medium': '#ffc107', 
+                    'Low': '#28a745'
+                }
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 def calculate_improvement_priority(improvement, frequency, total_tickets):
     """Calculate improvement priority based on various factors"""
@@ -357,8 +370,8 @@ def calculate_improvement_priority(improvement, frequency, total_tickets):
         'feature', 'usability', 'interface'
     ]
     
-    improvement_lower = improvement.lower()
-    frequency_ratio = frequency / total_tickets
+    improvement_lower = str(improvement).lower()
+    frequency_ratio = frequency / total_tickets if total_tickets > 0 else 0
     
     # High priority conditions
     if (any(keyword in improvement_lower for keyword in high_priority_keywords) or
@@ -380,7 +393,7 @@ def estimate_impact(improvement):
     high_impact_keywords = ['api', 'integration', 'authentication', 'performance', 'security']
     medium_impact_keywords = ['documentation', 'example', 'usability', 'interface']
     
-    improvement_lower = improvement.lower()
+    improvement_lower = str(improvement).lower()
     
     if any(keyword in improvement_lower for keyword in high_impact_keywords):
         return 'High'
@@ -400,49 +413,55 @@ def show_impact_analysis(df):
         st.markdown("#### 📊 Resolution Time vs Priority")
         
         # Scatter plot of resolution time vs priority colored by satisfaction
-        fig = px.scatter(
-            df,
-            x='priority_score',
-            y='resolution_time_hours',
-            color='customer_satisfaction',
-            size='customer_satisfaction',
-            title='Resolution Time vs Priority',
-            labels={
-                'priority_score': 'Priority Score',
-                'resolution_time_hours': 'Resolution Time (Hours)',
-                'customer_satisfaction': 'Satisfaction'
-            },
-            color_continuous_scale='RdYlGn'
-        )
-        
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
+        if 'priority_score' in df.columns and 'resolution_time_hours' in df.columns:
+            fig = px.scatter(
+                df,
+                x='priority_score',
+                y='resolution_time_hours',
+                color='customer_satisfaction',
+                size='customer_satisfaction',
+                title='Resolution Time vs Priority',
+                labels={
+                    'priority_score': 'Priority Score',
+                    'resolution_time_hours': 'Resolution Time (Hours)',
+                    'customer_satisfaction': 'Satisfaction'
+                },
+                color_continuous_scale='RdYlGn'
+            )
+            
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Insufficient data for resolution time analysis")
     
     with col2:
         st.markdown("#### 💰 Potential Cost Savings")
         
         # Calculate potential savings
-        avg_resolution_time = df['resolution_time_hours'].mean()
-        high_priority_tickets = len(df[df['priority_score'] >= 7])
-        
-        # Assuming $50/hour for support cost
-        hourly_cost = 50
-        current_cost = avg_resolution_time * len(df) * hourly_cost
-        
-        # Potential 20% reduction with improvements
-        potential_savings = current_cost * 0.2
-        
-        st.markdown(f"""
-        <div class="insight-card">
-            <h3>💰 Potential Monthly Savings</h3>
-            <h2>${potential_savings:,.0f}</h2>
-            <p>Based on 20% reduction in resolution time</p>
-            <hr>
-            <p><strong>Current Cost:</strong> ${current_cost:,.0f}/month</p>
-            <p><strong>Avg Resolution Time:</strong> {avg_resolution_time:.1f} hours</p>
-            <p><strong>High Priority Tickets:</strong> {high_priority_tickets}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if 'resolution_time_hours' in df.columns and not df.empty:
+            avg_resolution_time = df['resolution_time_hours'].mean()
+            high_priority_tickets = len(df[df['priority_score'] >= 7]) if 'priority_score' in df.columns else 0
+            
+            # Assuming $50/hour for support cost
+            hourly_cost = 50
+            current_cost = avg_resolution_time * len(df) * hourly_cost
+            
+            # Potential 20% reduction with improvements
+            potential_savings = current_cost * 0.2
+            
+            st.markdown(f"""
+            <div class="insight-card">
+                <h3>💰 Potential Monthly Savings</h3>
+                <h2>${potential_savings:,.0f}</h2>
+                <p>Based on 20% reduction in resolution time</p>
+                <hr>
+                <p><strong>Current Cost:</strong> ${current_cost:,.0f}/month</p>
+                <p><strong>Avg Resolution Time:</strong> {avg_resolution_time:.1f} hours</p>
+                <p><strong>High Priority Tickets:</strong> {high_priority_tickets}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("Insufficient data for cost analysis")
 
 def show_priority_matrix(df):
     """Show improvement priority matrix"""
@@ -452,55 +471,62 @@ def show_priority_matrix(df):
     # Create priority matrix data
     improvements = extract_improvement_suggestions(df)
     flat_improvements = [item for sublist in improvements for item in sublist if item]
+    
+    if not flat_improvements:
+        st.info("No improvement data available for priority matrix")
+        return
+    
     improvement_counts = Counter(flat_improvements)
     
     matrix_data = []
     for improvement, count in improvement_counts.most_common(20):
-        frequency_score = min(count / len(df) * 100, 10)  # Max 10
+        frequency_score = min(count / len(df) * 100, 10) if len(df) > 0 else 0  # Max 10
         complexity_score = estimate_complexity(improvement)  # 1-10 scale
         impact_score = estimate_impact_score(improvement)  # 1-10 scale
+        priority_score = (frequency_score + impact_score) / max(complexity_score, 1)  # Avoid division by zero
         
         matrix_data.append({
             'Improvement': improvement[:50] + '...' if len(improvement) > 50 else improvement,
             'Frequency': count,
             'Impact': impact_score,
             'Complexity': complexity_score,
-            'Priority Score': (frequency_score + impact_score) / complexity_score
+            'Priority Score': priority_score
         })
     
-    # Sort by priority score
-    matrix_data.sort(key=lambda x: x['Priority Score'], reverse=True)
-    
-    # Create bubble chart
-    matrix_df = pd.DataFrame(matrix_data)
-    
-    fig = px.scatter(
-        matrix_df,
-        x='Complexity',
-        y='Impact',
-        size='Frequency',
-        hover_name='Improvement',
-        title='🎯 Priority Matrix: Impact vs Complexity',
-        labels={
-            'Complexity': 'Implementation Complexity (1-10)',
-            'Impact': 'Business Impact (1-10)',
-            'Frequency': 'Frequency'
-        },
-        color='Priority Score',
-        color_continuous_scale='RdYlGn'
-    )
-    
-    # Add quadrant lines
-    fig.add_hline(y=5, line_dash="dash", line_color="gray", annotation_text="Medium Impact")
-    fig.add_vline(x=5, line_dash="dash", line_color="gray", annotation_text="Medium Complexity")
-    
-    fig.update_layout(height=600)
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Show top priorities table
-    st.markdown("#### 🏆 Top Development Priorities")
-    priority_df = matrix_df[['Improvement', 'Frequency', 'Impact', 'Complexity', 'Priority Score']].head(10)
-    st.dataframe(priority_df, use_container_width=True, hide_index=True)
+    if matrix_data:
+        # Sort by priority score
+        matrix_data.sort(key=lambda x: x['Priority Score'], reverse=True)
+        
+        # Create bubble chart
+        matrix_df = pd.DataFrame(matrix_data)
+        
+        fig = px.scatter(
+            matrix_df,
+            x='Complexity',
+            y='Impact',
+            size='Frequency',
+            hover_name='Improvement',
+            title='🎯 Priority Matrix: Impact vs Complexity',
+            labels={
+                'Complexity': 'Implementation Complexity (1-10)',
+                'Impact': 'Business Impact (1-10)',
+                'Frequency': 'Frequency'
+            },
+            color='Priority Score',
+            color_continuous_scale='RdYlGn'
+        )
+        
+        # Add quadrant lines
+        fig.add_hline(y=5, line_dash="dash", line_color="gray", annotation_text="Medium Impact")
+        fig.add_vline(x=5, line_dash="dash", line_color="gray", annotation_text="Medium Complexity")
+        
+        fig.update_layout(height=600)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Show top priorities table
+        st.markdown("#### 🏆 Top Development Priorities")
+        priority_df = matrix_df[['Improvement', 'Frequency', 'Impact', 'Complexity', 'Priority Score']].head(10)
+        st.dataframe(priority_df, use_container_width=True, hide_index=True)
 
 def estimate_complexity(improvement):
     """Estimate implementation complexity (1-10 scale)"""
@@ -509,7 +535,7 @@ def estimate_complexity(improvement):
     medium_complexity_keywords = ['feature', 'interface', 'validation', 'workflow']
     low_complexity_keywords = ['documentation', 'example', 'message', 'text', 'copy']
     
-    improvement_lower = improvement.lower()
+    improvement_lower = str(improvement).lower()
     
     if any(keyword in improvement_lower for keyword in high_complexity_keywords):
         return 8  # High complexity
@@ -526,7 +552,7 @@ def estimate_impact_score(improvement):
     high_impact_keywords = ['critical', 'security', 'performance', 'integration', 'api']
     medium_impact_keywords = ['usability', 'feature', 'workflow', 'interface']
     
-    improvement_lower = improvement.lower()
+    improvement_lower = str(improvement).lower()
     
     if any(keyword in improvement_lower for keyword in high_impact_keywords):
         return 9
@@ -547,13 +573,19 @@ def show_detailed_insights(df):
     
     with col1:
         st.markdown("#### 🎯 Key Insights")
-        for i, insight in enumerate(insights['key_insights'], 1):
-            st.markdown(f"**{i}.** {insight}")
+        if insights['key_insights']:
+            for i, insight in enumerate(insights['key_insights'], 1):
+                st.markdown(f"**{i}.** {insight}")
+        else:
+            st.info("No specific insights generated yet.")
     
     with col2:
         st.markdown("#### ✅ Recommended Actions")
-        for i, action in enumerate(insights['recommended_actions'], 1):
-            st.markdown(f"**{i}.** {action}")
+        if insights['recommended_actions']:
+            for i, action in enumerate(insights['recommended_actions'], 1):
+                st.markdown(f"**{i}.** {action}")
+        else:
+            st.info("No specific actions recommended yet.")
     
     # Export functionality
     st.markdown("#### 📤 Export Insights")
@@ -580,10 +612,13 @@ def generate_insights(df):
         'recommended_actions': []
     }
     
+    if df.empty:
+        return insights
+    
     # Analyze data for insights
     total_tickets = len(df)
-    avg_priority = df['priority_score'].mean()
-    avg_satisfaction = df['customer_satisfaction'].mean()
+    avg_priority = df['priority_score'].mean() if 'priority_score' in df.columns else 0
+    avg_satisfaction = df['customer_satisfaction'].mean() if 'customer_satisfaction' in df.columns else 0
     
     # Generate insights based on data
     if avg_priority > 6:
@@ -624,9 +659,10 @@ def export_dashboard_data(df):
     export_df = df.copy()
     
     # Add processed columns
-    export_df['sdk_issues_count'] = export_df['sdk_issues'].apply(
-        lambda x: len(json.loads(x)) if pd.notna(x) and x else 0
-    )
+    if 'sdk_issues' in export_df.columns:
+        export_df['sdk_issues_count'] = export_df['sdk_issues'].apply(
+            lambda x: len(json.loads(x)) if pd.notna(x) and x else 0
+        )
     
     # Convert to CSV
     csv = export_df.to_csv(index=False)
@@ -647,9 +683,9 @@ Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 ## Executive Summary
 - Total Tickets Analyzed: {len(df):,}
-- Average Priority Score: {df['priority_score'].mean():.1f}/10
-- Average Customer Satisfaction: {df['customer_satisfaction'].mean():.1f}/5
-- Average Resolution Time: {df['resolution_time_hours'].mean():.1f} hours
+- Average Priority Score: {df['priority_score'].mean():.1f}/10 if 'priority_score' in df.columns else 'N/A'
+- Average Customer Satisfaction: {df['customer_satisfaction'].mean():.1f}/5 if 'customer_satisfaction' in df.columns else 'N/A'
+- Average Resolution Time: {df['resolution_time_hours'].mean():.1f} hours if 'resolution_time_hours' in df.columns else 'N/A'
 
 ## Key Insights
 {chr(10).join([f"• {insight}" for insight in insights['key_insights']])}
@@ -680,7 +716,7 @@ def extract_sdk_issues(df):
                     sdk_issues.append(issues)
                 else:
                     sdk_issues.append([])
-            except:
+            except (json.JSONDecodeError, TypeError):
                 sdk_issues.append([])
         else:
             sdk_issues.append([])
@@ -699,7 +735,7 @@ def extract_improvement_suggestions(df):
                     improvements.append(suggestions)
                 else:
                     improvements.append([])
-            except:
+            except (json.JSONDecodeError, TypeError):
                 improvements.append([])
         else:
             improvements.append([])
