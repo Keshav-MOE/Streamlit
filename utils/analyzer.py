@@ -20,8 +20,9 @@ class GeminiTicketAnalyzer:
         # Initialize model
         try:
             # Try different model names in order of preference
-            model_names = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
-            
+            # Force the use of the latest Gemini Flash model as requested
+            model_names = ['gemini-1.5-flash-latest']
+
             for model_name in model_names:
                 try:
                     self.model = genai.GenerativeModel(model_name)
@@ -102,8 +103,9 @@ class GeminiTicketAnalyzer:
             available_models = [m.name for m in models]
             
             # Check if our preferred model is available
-            preferred_models = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
-            
+            # Update preferred models to match the forced model
+            preferred_models = ['models/gemini-1.5-flash-latest']
+
             found_model = False
             for model in preferred_models:
                 if model in available_models:
