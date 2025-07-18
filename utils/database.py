@@ -50,36 +50,36 @@ class TicketDB:
             conn.commit()
     
     def clear_all_data(self):
-    """Clear all data from the database"""
-    try:
-        # Use raw connection
-        import sqlite3
-        
-        # Connect directly to SQLite database
-        conn = sqlite3.connect('ticket_analysis.db')
-        cursor = conn.cursor()
-        
-        # Clear both tables
-        cursor.execute("DELETE FROM ticket_analysis")
-        cursor.execute("DELETE FROM monthly_summary")
-        
-        # Reset sequences
+        """Clear all data from the database"""
         try:
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name='ticket_analysis'")
-            cursor.execute("DELETE FROM sqlite_sequence WHERE name='monthly_summary'")
-        except:
-            pass
-        
-        # Commit and close
-        conn.commit()
-        conn.close()
-        
-        st.success("✅ Database cleared successfully")
-        return True
-        
-    except Exception as e:
-        st.error(f"Failed to clear database: {e}")
-        return False
+            # Use raw connection
+            import sqlite3
+            
+            # Connect directly to SQLite database
+            conn = sqlite3.connect('ticket_analysis.db')
+            cursor = conn.cursor()
+            
+            # Clear both tables
+            cursor.execute("DELETE FROM ticket_analysis")
+            cursor.execute("DELETE FROM monthly_summary")
+            
+            # Reset sequences
+            try:
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='ticket_analysis'")
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='monthly_summary'")
+            except:
+                pass
+            
+            # Commit and close
+            conn.commit()
+            conn.close()
+            
+            st.success("✅ Database cleared successfully")
+            return True
+            
+        except Exception as e:
+            st.error(f"Failed to clear database: {e}")
+            return False
     
     def get_table_counts(self):
         """Get count of records in each table"""
