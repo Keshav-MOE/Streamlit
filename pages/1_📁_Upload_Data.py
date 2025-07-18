@@ -167,27 +167,32 @@ def main():
                 
                 # Generate monthly summary
                 try:
-                    summary = st.session_state.db.generate_monthly_summary(month_year)
-                    st.session_state.db.save_monthly_summary(month_year, summary)
-                    
-                    st.balloons()
-                    
-                    # Show quick summary
-                    with st.container():
-                        st.subheader("📋 Processing Summary")
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.metric("Tickets Processed", total_processed)
-                        with col2:
-                            st.metric("Successful Batches", successful_batches)
-                        with col3:
-                            st.metric("Success Rate", f"{(successful_batches/total_batches)*100:.1f}%")
-                        with col4:
-                            st.metric("Avg Priority Score", f"{summary.get('avg_priority', 0):.1f}")
-                    
-                except Exception as e:
-                    st.warning(f"Summary generation failed: {e}")
+    with st.spinner("Generating monthly summary..."):
+        summary = st.session_state.db.generate_monthly_summary(month_year)
+        if summary:
+            st.session_state.db.save_monthly_summary(month_year, summary)
+            
+            st.balloons()
+            
+            # Show quick summary
+            with st.container():
+                st.subheader("📋 Processing Summary")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Tickets Processed", total_processed)
+                with col2:
+                    st.metric("Successful Batches", successful_batches)
+                with col3:
+                    st.metric("Success Rate", f"{(successful_batches/total_batches)*100:.1f}%")
+                with col4:
+                    st.metric("Avg Priority Score", f"{summary.get('avg_priority', 0):.1f}")
+        else:
+            st.warning("⚠️ Could not generate summary, but data was saved successfully")
+    
+except Exception as e:
+    st.warning(f"Summary generation had issues: {e}")
+    st.info("Don't worry - your ticket analysis data was saved successfully!")
             
             else:
                 status_container.error("❌ No batches were processed successfully")
