@@ -187,7 +187,7 @@ class GeminiTicketAnalyzer:
                 'subject': str(row.get('ticket_sub_name', row.get('Ticket subject', 'No Subject')))[:150],
                 'organization': str(row.get('organization_name', row.get('Ticket organization name', 'Unknown')))[:50],
                 'customer_tier': str(row.get('customer_tier', row.get('Customer Tier ', 'Unknown')))[:20],
-                'sdk': str(row.get('sdk_name', row.get('SDK', 'Unknown SDK')))[:50],
+                'sdk': str(row.get('sdk_name', row.get('SDK', 'Unknown')))[:50],
                 'sdk_issue_type': str(row.get('sdk_issue_category', row.get('SDK Issue Types', 'General')))[:100],
                 'resolution_time': str(row.get('resolution_time_hours', row.get('Full Resolution Time', 'Unknown'))),
                 'call_happened': str(row.get('did_call_happened', row.get('Call Happened for the Customer?', 'Unknown'))),
@@ -304,38 +304,59 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
             return self._create_fallback_analysis(df)
     
     def _validate_analysis_result(self, result: Dict) -> Dict:
-        """Validate and clean a single analysis result"""
-        
+        """Validate and clean a single analysis result with array handling"""
+
         def safe_convert_float(value, default=0.0):
             try:
-                if pd.isna(value) or value == '' or value is None:
+                if value is None or pd.isna(value):
                     return default
+                # Handle arrays/series
+                if isinstance(value, (pd.Series, np.ndarray)):
+                    if len(value) == 0:
+                        return default
+                    elif len(value) == 1:
+                        value = value.iloc[0] if isinstance(value, pd.Series) else value[0]
+                    else:
+                        return default  # Can't convert array to single float
+
                 # Handle string formats like "2.5 hours", "3h", etc.
                 if isinstance(value, str):
-                    # Extract numbers from string
                     numbers = re.findall(r'[\d.]+', value)
                     if numbers:
                         return float(numbers[0])
                 return float(value)
-            except:
+            except Exception:
                 return default
-        
+
         def safe_convert_int(value, default, min_val, max_val):
             try:
-                if pd.isna(value) or value == '' or value is None:
+                if value is None or pd.isna(value):
                     return default
+                # Handle arrays/series
+                if isinstance(value, (pd.Series, np.ndarray)):
+                    if len(value) == 0:
+                        return default
+                    elif len(value) == 1:
+                        value = value.iloc[0] if isinstance(value, pd.Series) else value[0]
+                    else:
+                        return default
                 return max(min_val, min(max_val, int(float(value))))
-            except:
+            except Exception:
                 return default
-        
+
         def ensure_list(value, default_list):
-            if isinstance(value, list):
-                return [str(item) for item in value if item]  # Convert to strings and remove empty
+            if value is None or pd.isna(value):
+                return default_list
             elif isinstance(value, str) and value.strip():
                 return [value.strip()]
+            elif isinstance(value, (list, tuple)):
+                return [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
+            elif isinstance(value, (pd.Series, np.ndarray)):
+                return [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
             else:
-                return default_list
-        
+                return [str(value)] if str(value).strip() else default_list
+
+        # Apply safe conversions
         cleaned_result = {
             'ticket_id': str(result.get('ticket_id', 'unknown')),
             'ticket_category': str(result.get('ticket_category', 'General')),
@@ -346,7 +367,7 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
             'customer_satisfaction': safe_convert_int(result.get('customer_satisfaction'), 3, 1, 5),
             'sdk_impact': str(result.get('sdk_impact', 'Medium'))
         }
-        
+
         return cleaned_result
     
     def _create_fallback_analysis(self, df: pd.DataFrame) -> List[Dict]:
