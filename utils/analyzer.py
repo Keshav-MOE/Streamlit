@@ -7,6 +7,7 @@ from typing import List, Dict
 import os
 import re
 from google.api_core import exceptions
+import numpy as np
 
 class GeminiTicketAnalyzer:
     def __init__(self, api_key=None):
