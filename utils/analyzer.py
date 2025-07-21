@@ -292,9 +292,16 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
             elif isinstance(value, (list, tuple)):
                 return [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
             elif isinstance(value, (pd.Series, np.ndarray)):
-                return [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
+                # Avoid ambiguous truth value by checking length
+                items = [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
+                return items if len(items) > 0 else default_list
             else:
-                return [str(value)] if str(value).strip() else default_list
+                # For all other types, convert to string and check if non-empty
+                val_str = str(value)
+                if isinstance(value, (pd.Series, np.ndarray)):
+                    # Defensive: should not reach here, but just in case
+                    return list(map(str, value)) if len(value) > 0 else default_list
+                return [val_str] if val_str.strip() else default_list
 
         # Apply safe conversions
         cleaned_result = {
