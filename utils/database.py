@@ -168,6 +168,31 @@ class TicketDB:
         except Exception:
             return False, 0
 
+    def save_single_analysis(self, month: str, ticket_result: dict) -> bool:
+        """Save a single analysis result to the database."""
+        from datetime import datetime
+        if not isinstance(ticket_result, dict):
+            return False
+        record = {
+            'month': str(month),
+            'batch_number': 1,
+            'ticket_id': str(ticket_result.get('ticket_id', 'unknown')),
+            'ticket_category': str(ticket_result.get('ticket_category', 'General')),
+            'analysis_json': _safe_json_dumps(ticket_result),
+            'sdk_issues': _safe_json_dumps(ticket_result.get('sdk_issues', [])),
+            'improvement_suggestions': _safe_json_dumps(ticket_result.get('improvement_suggestions', [])),
+            'priority_score': int(ticket_result.get('priority_score', 5)),
+            'resolution_time_hours': float(ticket_result.get('resolution_time_hours', 0.0)),
+            'customer_satisfaction': int(ticket_result.get('customer_satisfaction', 3)),
+            'created_at': datetime.now()
+        }
+        try:
+            df = pd.DataFrame([record])
+            df.to_sql('ticket_analysis', self.engine, if_exists='append', index=False)
+            return True
+        except Exception:
+            return False
+
     def generate_monthly_summary(self, month: str) -> Optional[Dict[str, Any]]:
         """Generates and saves a summary for a specific month."""
         df = self.get_analysis_data(month)

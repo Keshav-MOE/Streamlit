@@ -13,33 +13,16 @@ class GeminiTicketAnalyzer:
         self.api_key = api_key
         self.model = None
         self.analysis_count = 0
-        
-        # Try to configure API key
+        # Only use Gemini-2.0-flash
+        model_name = 'gemini-2.0-flash'
         if not self._configure_api_key():
             raise ValueError("❌ Gemini API key configuration failed")
-        
-        # Initialize model
         try:
-            # Try different model names in order of preference
-            # Force the use of the latest Gemini Flash model as requested
-            model_names = ['gemini-1.5-flash-latest']
-
-            for model_name in model_names:
-                try:
-                    self.model = genai.GenerativeModel(model_name)
-                    st.info(f"✅ Using model: {model_name}")
-                    break
-                except Exception as e:
-                    continue
-            
-            if not self.model:
-                raise ValueError("No available Gemini models found")
-                
+            self.model = genai.GenerativeModel(model_name)
+            st.info(f"✅ Using model: {model_name}")
         except Exception as e:
             st.error(f"❌ Failed to initialize Gemini model: {e}")
             raise ValueError(f"Model initialization failed: {e}")
-        
-        # SDK-focused analysis criteria
         self.sdk_focus_areas = [
             "API Integration Issues",
             "Documentation Problems", 
@@ -120,86 +103,48 @@ class GeminiTicketAnalyzer:
             st.error(f"❌ API key test failed: {e}")
             raise ValueError(f"Invalid API key: {e}")
     
-    def analyze_batch(self, batch_df: pd.DataFrame) -> List[Dict]:
-        """Analyze a batch of tickets with focus on SDK improvements and debug info"""
-        
-        # Debug info
-        st.info(f"🤖 Starting AI analysis of {len(batch_df)} tickets...")
-        
-        # Limit batch size to avoid token limits
-        processing_df = batch_df.head(10)  # Process 10 tickets at a time
-        
-        if len(batch_df) > 10:
-            st.warning(f"⚠️ Limiting batch to 10 tickets (from {len(batch_df)}) to avoid API limits")
-        
-        try:
-            # Show what we're analyzing
-            with st.expander("🔍 Tickets Being Analyzed"):
-                for idx, row in processing_df.iterrows():
-                    ticket_id = row.get('ticket_id', row.get('Ticket_ID', f'row_{idx}'))
-                    subject = str(row.get('ticket_sub_name', row.get('Ticket subject', 'No subject')))[:50]
-                    st.text(f"• {ticket_id}: {subject}...")
-            
-            # Create focused prompt for SDK analysis
-            st.info("📝 Generating AI analysis prompt...")
-            prompt = self._create_sdk_focused_prompt(processing_df)
-            
-            # Show prompt length for debugging
-            st.info(f"📊 Prompt length: {len(prompt)} characters")
-            
-            # Call Gemini API with updated configuration
-            st.info("🚀 Calling Gemini API (with retry logic)...")
-            response = None
-            max_retries = 3
-            initial_wait_time = 5  # seconds
-
-            for attempt in range(max_retries):
-                try:
-                    response = self.model.generate_content(
-                        prompt,
-                        generation_config=genai.GenerationConfig(
-                            temperature=0.1,  # Lower temperature for more consistent analysis
-                            max_output_tokens=4096,
-                            top_p=0.8,
-                            top_k=40
-                        )
+    def analyze_ticket(self, ticket_row: dict) -> dict:
+        """Analyze a single ticket and return the result dict."""
+        import random
+        import time
+        st.info(f"🤖 Analyzing ticket {ticket_row.get('ticket_id', ticket_row.get('Ticket_ID', 'unknown'))}")
+        prompt = self._create_sdk_focused_prompt(pd.DataFrame([ticket_row]))
+        st.info(f"📊 Prompt length: {len(prompt)} characters")
+        max_retries = 3
+        initial_wait_time = 5
+        for attempt in range(max_retries):
+            try:
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config=genai.GenerationConfig(
+                        temperature=0.1,
+                        max_output_tokens=4096,
+                        top_p=0.8,
+                        top_k=40
                     )
-                    # If successful, break the loop
-                    break
-                except exceptions.ResourceExhausted as e:
-                    wait_time = initial_wait_time * (2 ** attempt)
-                    st.warning(
-                        f"⚠️ Rate limit hit (Attempt {attempt + 1}/{max_retries}). "
-                        f"This usually means you've exceeded the free tier's requests per minute/day. "
-                        f"Waiting {wait_time}s to retry..."
-                    )
-                    time.sleep(wait_time)
-                    if attempt + 1 == max_retries:
-                        st.error("❌ Max retries reached. The API is still unavailable. Aborting this batch.")
-                        raise e  # Re-raise to be caught by the outer block
-                except Exception as e:
-                    st.error(f"❌ An unexpected API error occurred on attempt {attempt + 1}: {e}")
-                    raise e  # Re-raise to be caught by the outer block
-            
-            st.success("✅ Gemini API call completed")
-            
-            # Parse response
-            st.info("📋 Parsing AI response...")
-            analysis_results = self._parse_gemini_response(response.text, processing_df)
-            
-            # Debug: Show analysis results count
-            st.success(f"🎉 Successfully analyzed {len(analysis_results)} tickets")
-            
-            # Update counter
-            self.analysis_count += len(analysis_results)
-            
-            return analysis_results
-            
-        except Exception as e:
-            st.warning(f"⚠️ Gemini API Error: {e}")
-            st.info("🔄 Using fallback analysis...")
-            # Return fallback analysis
-            return self._create_fallback_analysis(processing_df)
+                )
+                break
+            except exceptions.ResourceExhausted as e:
+                wait_time = initial_wait_time * (2 ** attempt) + random.uniform(0, 2)
+                st.warning(
+                    f"⚠️ Rate limit hit (Attempt {attempt + 1}/{max_retries}). Waiting {wait_time:.1f}s to retry..."
+                )
+                time.sleep(wait_time)
+                if attempt + 1 == max_retries:
+                    st.error("❌ Max retries reached. The API is still unavailable. Aborting this ticket.")
+                    raise e
+            except Exception as e:
+                st.error(f"❌ An unexpected API error occurred on attempt {attempt + 1}: {e}")
+                raise e
+        st.success("✅ Gemini API call completed")
+        st.info("📋 Parsing AI response...")
+        analysis_results = self._parse_gemini_response(response.text, pd.DataFrame([ticket_row]))
+        if analysis_results and isinstance(analysis_results, list):
+            result = analysis_results[0]
+        else:
+            result = {}
+        self.analysis_count += 1
+        return result
     
     def _create_sdk_focused_prompt(self, df: pd.DataFrame) -> str:
         """Create a comprehensive SDK-focused analysis prompt"""
