@@ -248,17 +248,17 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
 
         def safe_convert_float(value, default=0.0):
             try:
-                if value is None or pd.isna(value):
+                # Robust NA check for arrays/Series
+                if value is None or (isinstance(value, (pd.Series, np.ndarray)) and (len(value) == 0 or (hasattr(value, 'size') and value.size == 0))) or (not isinstance(value, (pd.Series, np.ndarray)) and pd.isna(value)):
                     return default
                 # Handle arrays/series
                 if isinstance(value, (pd.Series, np.ndarray)):
-                    if len(value) == 0:
+                    if len(value) == 0 or (hasattr(value, 'size') and value.size == 0):
                         return default
                     elif len(value) == 1:
                         value = value.iloc[0] if isinstance(value, pd.Series) else value[0]
                     else:
                         return default  # Can't convert array to single float
-
                 # Handle string formats like "2.5 hours", "3h", etc.
                 if isinstance(value, str):
                     numbers = re.findall(r'[\d.]+', value)
@@ -270,11 +270,11 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
 
         def safe_convert_int(value, default, min_val, max_val):
             try:
-                if value is None or pd.isna(value):
+                if value is None or (isinstance(value, (pd.Series, np.ndarray)) and (len(value) == 0 or (hasattr(value, 'size') and value.size == 0))) or (not isinstance(value, (pd.Series, np.ndarray)) and pd.isna(value)):
                     return default
                 # Handle arrays/series
                 if isinstance(value, (pd.Series, np.ndarray)):
-                    if len(value) == 0:
+                    if len(value) == 0 or (hasattr(value, 'size') and value.size == 0):
                         return default
                     elif len(value) == 1:
                         value = value.iloc[0] if isinstance(value, pd.Series) else value[0]
@@ -285,22 +285,18 @@ Return a JSON array with exactly {len(ticket_summaries)} objects. Only return va
                 return default
 
         def ensure_list(value, default_list):
-            if value is None or pd.isna(value):
+            # Robust NA check for arrays/Series
+            if value is None or (isinstance(value, (pd.Series, np.ndarray)) and (len(value) == 0 or (hasattr(value, 'size') and value.size == 0))) or (not isinstance(value, (pd.Series, np.ndarray)) and pd.isna(value)):
                 return default_list
             elif isinstance(value, str) and value.strip():
                 return [value.strip()]
             elif isinstance(value, (list, tuple)):
-                return [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
+                return [str(item) for item in value if item is not None and not (isinstance(item, (pd.Series, np.ndarray)) and (len(item) == 0 or (hasattr(item, 'size') and item.size == 0))) and not pd.isna(item) and str(item).strip()]
             elif isinstance(value, (pd.Series, np.ndarray)):
-                # Avoid ambiguous truth value by checking length
-                items = [str(item) for item in value if item is not None and not pd.isna(item) and str(item).strip()]
+                items = [str(item) for item in value if item is not None and not (isinstance(item, (pd.Series, np.ndarray)) and (len(item) == 0 or (hasattr(item, 'size') and item.size == 0))) and not pd.isna(item) and str(item).strip()]
                 return items if len(items) > 0 else default_list
             else:
-                # For all other types, convert to string and check if non-empty
                 val_str = str(value)
-                if isinstance(value, (pd.Series, np.ndarray)):
-                    # Defensive: should not reach here, but just in case
-                    return list(map(str, value)) if len(value) > 0 else default_list
                 return [val_str] if val_str.strip() else default_list
 
         # Apply safe conversions
